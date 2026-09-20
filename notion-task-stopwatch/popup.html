@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Notion Task Stopwatch – Settings</title>
+  <style>
+    body {
+      width: 300px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      padding: 14px;
+      color: #1f1f1f;
+    }
+    h1 {
+      font-size: 14px;
+      margin: 0 0 10px;
+    }
+    label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      margin-top: 10px;
+      margin-bottom: 4px;
+    }
+    input[type="text"],
+    input[type="password"],
+    textarea {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 6px 8px;
+      font-size: 13px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      font-family: inherit;
+      resize: vertical;
+    }
+    code {
+      background: #f0f0f0;
+      padding: 1px 4px;
+      border-radius: 4px;
+      font-size: 11px;
+    }
+    .hint {
+      font-size: 11px;
+      color: #666;
+      margin-top: 4px;
+    }
+    button {
+      margin-top: 14px;
+      width: 100%;
+      padding: 8px 0;
+      background: #2f7d4f;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    button:hover {
+      background: #37905c;
+    }
+    #status {
+      margin-top: 8px;
+      font-size: 12px;
+      text-align: center;
+      min-height: 14px;
+    }
+    a {
+      color: #2f7d4f;
+    }
+    .footer-link {
+      display: block;
+      margin-top: 12px;
+      font-size: 11px;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <h1>Notion Task Stopwatch</h1>
+
+  <label for="token">Notion integration token</label>
+  <input id="token" type="password" placeholder="secret_..." autocomplete="off" />
+  <div class="hint">
+    Create one at
+    <a href="https://www.notion.so/my-integrations" target="_blank">notion.so/my-integrations</a>,
+    then share your task database with it. See setup steps below.
+  </div>
+
+  <label for="property">Database property name</label>
+  <input id="property" type="text" placeholder="Time Spent (min)" />
+  <div class="hint">
+    Must be an existing <strong>Number</strong> property on your database, spelled exactly as it appears in Notion.
+  </div>
+
+  <label for="exclude">Exclude URLs (optional)</label>
+  <textarea id="exclude" rows="3" placeholder="e.g. &#10;calendar&#10;/regex-here/"></textarea>
+  <div class="hint">
+    One per line. The widget is already hidden automatically on plain
+    database views (calendar/kanban/table/etc. with no page open); add
+    entries here only for pages that still show it and shouldn't. Plain
+    text matches anywhere in the URL; wrap a line in <code>/ /</code> to
+    use it as a regex.
+  </div>
+
+  <button id="save">Save settings</button>
+  <div id="status"></div>
+
+  <a class="footer-link" href="SETUP.md" target="_blank">Full setup instructions</a>
+
+  <script src="popup.js"></script>
+</body>
+</html>

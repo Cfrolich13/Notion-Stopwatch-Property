@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "Notion Task Stopwatch",
+  "version": "1.0.0",
+  "description": "Start, pause, and resume a stopwatch on any Notion page and save the total time (in minutes) to a database property.",
+  "permissions": ["storage"],
+  "host_permissions": [
+    "https://api.notion.com/*",
+    "https://www.notion.so/*",
+    "https://app.notion.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.notion.so/*", "https://app.notion.com/*"],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Notion Task Stopwatch – Settings"
+  }
+}

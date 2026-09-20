@@ -1,0 +1,80 @@
+#nts-widget-root {
+  all: initial;
+  display: inline-flex !important;
+  align-items: center;
+  gap: 6px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  font-size: 12px;
+  background: #2b2b2b;
+  color: #ffffff;
+  border-radius: 999px;
+  padding: 3px 8px 3px 10px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  z-index: 2147483647;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+/* Fallback: fixed to the corner when we can't find the property row. */
+#nts-widget-root.nts-floating {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+}
+
+/* Preferred: sits right next to the property value, in normal flow. */
+#nts-widget-root.nts-inline {
+  position: relative;
+  margin-left: 8px;
+}
+
+#nts-widget-root .nts-time {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  min-width: 42px;
+  text-align: center;
+}
+
+#nts-widget-root button {
+  all: unset;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  padding: 3px 5px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#nts-widget-root button:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+#nts-widget-root .nts-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: transparent;
+  margin-left: 2px;
+  flex-shrink: 0;
+}
+
+#nts-widget-root .nts-dot-saving {
+  background: #5b9bd5;
+  animation: nts-pulse 1s ease-in-out infinite;
+}
+
+#nts-widget-root .nts-dot-saved {
+  background: #2f7d4f;
+}
+
+#nts-widget-root .nts-dot-error {
+  background: #d64545;
+}
+
+@keyframes nts-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
