@@ -92,6 +92,23 @@
     Must be an existing <strong>Number</strong> property on your database, spelled exactly as it appears in Notion.
   </div>
 
+  <label for="statusProperty">Status property name (optional)</label>
+  <input id="statusProperty" type="text" placeholder="e.g. Status" />
+  <div class="hint">
+    If set, the stopwatch starts automatically when this property's value
+    changes to "In progress", pauses automatically when it changes to
+    "Done", and is written to "In progress" if you start the stopwatch
+    manually while it's still "Not started". Leave blank to disable.
+  </div>
+
+  <label for="doneCheckboxProperty">Done checkbox property name (optional)</label>
+  <input id="doneCheckboxProperty" type="text" placeholder="e.g. Done" />
+  <div class="hint">
+    If set, checking this checkbox in Notion pauses the stopwatch
+    automatically. Independent of the Status property above &mdash; either
+    one alone is enough to enable auto-pause. Leave blank to disable.
+  </div>
+
   <label for="exclude">Exclude URLs (optional)</label>
   <textarea id="exclude" rows="3" placeholder="e.g. &#10;calendar&#10;/regex-here/"></textarea>
   <div class="hint">

@@ -15,7 +15,9 @@ decisions already made.
 
 Fully working, iterated through several rounds of user feedback. The version
 described below is the latest. No known open bugs; the "next steps" section
-lists things flagged as best-effort/fragile that may need revisiting.
+lists things flagged as best-effort/fragile that may need revisiting, most
+notably the newly added Status/Done-checkbox auto-start/pause feature,
+which hasn't been tried against the user's live Notion markup yet.
 
 ## User's requirements, in the order they came up
 
@@ -46,9 +48,22 @@ lists things flagged as best-effort/fragile that may need revisiting.
    views — calendar, kanban, etc. — where no page is actually open, so
    there's nothing to time. Asked for automatic detection, and if that's
    not fully reliable, a manual exclude-URL field as a backstop. Both were
-   implemented. This is the most recent change and **has not yet been
-   confirmed working by the user** — verify it first if picking this back
-   up.
+   implemented. **Not yet confirmed working by the user** — verify first
+   if picking this back up.
+7. **Status-driven auto-start/pause** (latest change, **not yet confirmed
+   working by the user**):
+    - Stopwatch **starts automatically** when a configured Status property's
+      value changes to "In progress" on the open task.
+    - Starting the stopwatch **manually** while Status currently reads "Not
+      started" **writes Status = "In progress"** back to Notion.
+    - Stopwatch **pauses automatically** when Status changes to "Done", or
+      when a separately-configured "Done" checkbox property is checked.
+    - Both the Status property name and the Done checkbox property name are
+      **optional settings**, independent of each other (a user with only a
+      Done checkbox gets auto-pause but no auto-start, since there's no "In
+      progress" state to key off).
+    - Detection is DOM-based (reuses `findPropertyValueCell`), not a second
+      API read path — see "Status/Done watching" below.
 
 ## Architecture
 
@@ -72,18 +87,31 @@ lists things flagged as best-effort/fragile that may need revisiting.
     - Polls `location.href` every 500ms to detect Notion's client-side
       (History API) navigation, since it's an SPA and the content script
       isn't re-injected on route changes.
+    - Status/Done-checkbox watching (`checkStatusTransitions`), run from the
+      same 1s tick that already drives auto-save and inline re-anchoring —
+      see "Status/Done watching" below.
 - **`background.js`** — the *only* piece that talks to the Notion API.
   Listens for `{ type: "NTS_SAVE_TIME", pageId, minutes }` messages,
   reads `notionToken`/`propertyName` from `chrome.storage.local`, and
   PATCHes `https://api.notion.com/v1/pages/{dashedPageId}` with
-  `properties[propertyName].number = minutes`. Converts the 32-char hex
-  page id to dashed UUID form (`toDashedId`) since that's what the API
-  expects. Notion-Version header is pinned to `2022-06-28`.
+  `properties[propertyName].number = minutes`. Also listens for
+  `{ type: "NTS_SET_STATUS_IN_PROGRESS", pageId, statusPropertyName }`,
+  which first **GETs the page** to read the target property's actual API
+  `type` (`"status"` vs `"select"`, since Notion's native Status property
+  and a plain Select property need different PATCH payload shapes), then
+  PATCHes accordingly. Both write paths share a `patchPageProperties`
+  helper. Converts the 32-char hex page id to dashed UUID form
+  (`toDashedId`) since that's what the API expects. Notion-Version header
+  is pinned to `2022-06-28`.
 - **`popup.html` / `popup.js`** — settings UI, all stored in
   `chrome.storage.local`:
     - `notionToken` — integration token (password field).
     - `propertyName` — target Number property name, default
       `"Time Spent (min)"`.
+    - `statusPropertyName` — optional; blank disables Status-driven
+      auto-start/pause entirely.
+    - `doneCheckboxPropertyName` — optional; blank disables checkbox-driven
+      auto-pause. Independent of `statusPropertyName`.
     - `excludePatterns` — array of strings, one per settings-textarea line.
       Plain text = substring match (case-insensitive) anywhere in the URL;
       a line wrapped in `/like this/` is used as a regex.
@@ -146,6 +174,40 @@ If Notion changes their markup or URL structure in a way that breaks any
 of the above, the fix is almost always localized to one function in
 `content.js` — the rest of the architecture doesn't need to change.
 
+## Status/Done watching (also fragile/best-effort, **unconfirmed**)
+
+- **Edge-triggered, not level-triggered**: `checkStatusTransitions` (run
+  every 1s alongside the existing tick) only acts on an observed *change*
+  in the Status text or checkbox state, never on the value simply being
+  what it is. `lastObservedStatus`/`lastObservedDoneChecked` hold the
+  previous reading and are reset to `null` on page activation and on a
+  settings change, so the very first read after either is treated as a
+  baseline, not a transition — otherwise opening a task that's already
+  "In progress" would force-start the timer every time. This was a
+  deliberate choice to match "starts when Status *changes* to In
+  progress," not "starts whenever Status happens to be In progress."
+- **Status text matching**: reuses `findPropertyValueCell` (the same
+  function that anchors the inline widget) to locate the Status value
+  cell, then compares its trimmed, lowercased `textContent` against the
+  literal strings `"not started"`, `"in progress"`, `"done"` — Notion's
+  default Status-property option names. A relabeled Status/Select
+  property with different option text won't be recognized; this isn't
+  configurable beyond the property *name*.
+- **Done-checkbox state** (`readCheckboxState`): looks for an
+  `aria-checked` attribute on the checkbox's value cell (or a descendant
+  of it) and reads `"true"`/`"false"` off of it. This was **not verified
+  against Notion's actual rendered markup** — it's an assumption about how
+  Notion's checkbox property exposes its state via ARIA. If checking the
+  box doesn't trigger auto-pause, inspect the real DOM and adjust this
+  function first.
+- **Manual-start status write**: `startTimer()` re-reads the Status cell
+  right after marking the timer running; if it reads "not started", it
+  fires `NTS_SET_STATUS_IN_PROGRESS` and immediately sets
+  `lastObservedStatus = "in progress"` so the next tick's transition check
+  doesn't also try to act on the resulting DOM update (harmless either way
+  since `startTimer` no-ops when already running, but avoids a redundant
+  API call).
+
 ## Known non-goals / things not implemented
 
 - No drag-to-reposition for the floating fallback widget.
@@ -162,10 +224,16 @@ of the above, the fix is almost always localized to one function in
 1. Confirm the bare-database-view auto-hide actually works across the
    user's calendar/kanban/table views; adjust `isBareDatabaseView` if
    Notion's `v=`/`p=` param behavior doesn't match what was assumed.
-2. If the user wants it distributed beyond their own machine, consider
+2. **Confirm the Status/Done-checkbox auto-start/auto-pause feature**
+   end-to-end against the user's real database — this is the most
+   recently added feature and hasn't been tried against live Notion
+   markup yet. In particular, verify `readCheckboxState`'s `aria-checked`
+   assumption actually matches how Notion renders a checkbox property;
+   adjust it if not (see "Status/Done watching" above).
+3. If the user wants it distributed beyond their own machine, consider
    Chrome Web Store packaging (icons, store listing, privacy disclosures
    for the Notion API token).
-3. If inline placement proves too fragile as Notion updates their UI,
+4. If inline placement proves too fragile as Notion updates their UI,
    consider a more targeted approach (e.g., MutationObserver-based anchor
    re-acquisition, or scoping the search more tightly using ARIA
    attributes if Notion adds any).

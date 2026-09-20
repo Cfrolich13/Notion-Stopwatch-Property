@@ -6,9 +6,17 @@
 (function () {
   let currentPageId = null;
   let propertyName = "Time Spent (min)";
+  let statusPropertyName = "";
+  let doneCheckboxPropertyName = "";
   let excludePatterns = [];
   let widgetRoot = null;
   let els = {};
+
+  // Baseline for edge-triggered Status/Done detection; reset to null on
+  // page activation and on settings changes so the first DOM read after
+  // either isn't mistaken for a live transition.
+  let lastObservedStatus = null;
+  let lastObservedDoneChecked = null;
 
   const AUTO_SAVE_MS = 60 * 1000;
 
@@ -71,6 +79,13 @@
     excludePatterns = Array.isArray(stored) ? stored : [];
   }
 
+  async function refreshStatusSettings() {
+    const { statusPropertyName: status, doneCheckboxPropertyName: done } =
+      await chrome.storage.local.get(["statusPropertyName", "doneCheckboxPropertyName"]);
+    statusPropertyName = status && status.trim() ? status.trim() : "";
+    doneCheckboxPropertyName = done && done.trim() ? done.trim() : "";
+  }
+
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== "local") return;
     if (changes.propertyName) {
@@ -81,6 +96,14 @@
         ? changes.excludePatterns.newValue
         : [];
       onUrlChanged(); // re-evaluate the current page against the new list
+    }
+    if (changes.statusPropertyName) {
+      statusPropertyName = changes.statusPropertyName.newValue || "";
+      lastObservedStatus = null;
+    }
+    if (changes.doneCheckboxPropertyName) {
+      doneCheckboxPropertyName = changes.doneCheckboxPropertyName.newValue || "";
+      lastObservedDoneChecked = null;
     }
   });
 
@@ -170,19 +193,40 @@
   async function onToggle() {
     const state = await loadState(currentPageId);
     if (state.running) {
-      state.elapsedMs += Date.now() - state.lastStartTs;
-      state.running = false;
-      state.lastStartTs = null;
-      await saveState(currentPageId, state);
-      await render();
-      await pushToNotion(state.elapsedMs);
+      await pauseTimer();
     } else {
-      state.running = true;
-      state.lastStartTs = Date.now();
-      if (!state.lastAutoSaveAt) state.lastAutoSaveAt = Date.now();
-      await saveState(currentPageId, state);
-      await render();
+      await startTimer();
     }
+  }
+
+  async function startTimer() {
+    const state = await loadState(currentPageId);
+    if (state.running) return;
+    state.running = true;
+    state.lastStartTs = Date.now();
+    if (!state.lastAutoSaveAt) state.lastAutoSaveAt = Date.now();
+    await saveState(currentPageId, state);
+    await render();
+
+    if (statusPropertyName) {
+      const cell = findPropertyValueCell(statusPropertyName);
+      const text = cell ? cell.textContent.trim().toLowerCase() : null;
+      if (text === "not started") {
+        lastObservedStatus = "in progress";
+        pushStatusInProgress();
+      }
+    }
+  }
+
+  async function pauseTimer() {
+    const state = await loadState(currentPageId);
+    if (!state.running) return;
+    state.elapsedMs += Date.now() - state.lastStartTs;
+    state.running = false;
+    state.lastStartTs = null;
+    await saveState(currentPageId, state);
+    await render();
+    await pushToNotion(state.elapsedMs);
   }
 
   async function onReset() {
@@ -216,6 +260,56 @@
       }
     } catch (err) {
       setDot("error", `Error: ${err.message}`);
+    }
+  }
+
+  async function pushStatusInProgress() {
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: "NTS_SET_STATUS_IN_PROGRESS",
+        pageId: currentPageId,
+        statusPropertyName,
+      });
+      if (response && response.error) {
+        console.error("Notion Task Stopwatch: failed to set Status", response.error);
+      }
+    } catch (err) {
+      console.error("Notion Task Stopwatch: failed to set Status", err.message);
+    }
+  }
+
+  // ---------- Status / Done watching ----------
+
+  function readCheckboxState(cell) {
+    const el = cell.hasAttribute("aria-checked") ? cell : cell.querySelector("[aria-checked]");
+    if (!el) return null;
+    return el.getAttribute("aria-checked") === "true";
+  }
+
+  async function checkStatusTransitions() {
+    if (!currentPageId) return;
+
+    if (statusPropertyName) {
+      const cell = findPropertyValueCell(statusPropertyName);
+      const text = cell ? cell.textContent.trim().toLowerCase() : null;
+      if (text !== null && text !== lastObservedStatus) {
+        const prev = lastObservedStatus;
+        lastObservedStatus = text;
+        if (prev !== null) {
+          if (text === "in progress") await startTimer();
+          else if (text === "done") await pauseTimer();
+        }
+      }
+    }
+
+    if (doneCheckboxPropertyName) {
+      const cell = findPropertyValueCell(doneCheckboxPropertyName);
+      const checked = cell ? readCheckboxState(cell) : null;
+      if (checked !== null && checked !== lastObservedDoneChecked) {
+        const prev = lastObservedDoneChecked;
+        lastObservedDoneChecked = checked;
+        if (prev !== null && checked === true) await pauseTimer();
+      }
     }
   }
 
@@ -300,6 +394,9 @@
   async function activatePage(pageId) {
     currentPageId = pageId;
     await refreshPropertyName();
+    await refreshStatusSettings();
+    lastObservedStatus = null;
+    lastObservedDoneChecked = null;
     if (!widgetRoot) widgetRoot = buildWidget();
     widgetRoot.style.display = "";
     await render();
@@ -356,6 +453,7 @@
       }
     }
     placeWidget();
+    await checkStatusTransitions();
   }, 1000);
 
   onUrlChanged();

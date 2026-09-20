@@ -38,7 +38,12 @@ Notion integrations can only see what you explicitly share with them.
 2. Paste your integration token into **"Notion integration token"**.
 3. Type the exact property name from step 2 into **"Database property
    name"** (defaults to `Time Spent (min)`).
-4. Click **Save settings**.
+4. Optionally, type the exact name of your **Status** property (native
+   Status or Select type) into **"Status property name"**, and/or your
+   **Done** checkbox property's name into **"Done checkbox property
+   name"** — see "Automatic start/pause from Status" below. Both are
+   blank/disabled by default.
+5. Click **Save settings**.
 
 ## 5. Use it
 
@@ -58,6 +63,24 @@ Notion integrations can only see what you explicitly share with them.
    new task or after you've recorded the time and want to start fresh).
 6. The small dot next to the icons briefly turns blue while saving, green
    once saved, and red if something went wrong (hover it for details).
+
+## Automatic start/pause from Status (optional)
+
+If you fill in **"Status property name"** and/or **"Done checkbox
+property name"** in the settings popup:
+
+- Changing that Status property's value to **"In progress"** in Notion
+  starts the stopwatch automatically.
+- Starting the stopwatch manually (tapping ▶) while Status currently
+  reads **"Not started"** writes `Status = "In progress"` back to Notion,
+  so the two stay in sync however you start a task.
+- Changing Status to **"Done"**, or checking the **Done** checkbox
+  (if configured), pauses the stopwatch automatically.
+
+This only reacts to a value actually *changing* while the page is open —
+opening a task that's already "In progress" won't force-start the timer.
+Both settings are independent and optional; leave either blank to skip
+that behavior.
 
 ## Notes & limitations
 
@@ -87,3 +110,14 @@ Notion integrations can only see what you explicitly share with them.
   sync even if you Reset and re-time a task.
 - If you ever revoke or rotate the integration token, just paste the new
   one into the popup.
+- **Done-checkbox detection** (if you configure it) looks for an
+  `aria-checked` attribute on the checkbox's DOM cell to tell checked from
+  unchecked. This hasn't been confirmed against a real Notion checkbox
+  property yet — if checking the box doesn't pause the stopwatch, this is
+  the first thing to check (open dev tools, inspect the checkbox cell, and
+  adjust `readCheckboxState` in `content.js` to match what Notion actually
+  renders).
+- Status/Select value matching is case-insensitive but exact otherwise —
+  it expects the literal words "Not started", "In progress", and "Done"
+  (Notion's default Status template). A relabeled Status property with
+  different option names won't be recognized.
