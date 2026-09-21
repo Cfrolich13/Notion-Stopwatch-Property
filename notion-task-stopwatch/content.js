@@ -191,6 +191,10 @@
   // ---------- actions ----------
 
   async function onToggle() {
+    if (!isContextValid()) {
+      alert("This page needs to be refreshed after an extension update.");
+      return;
+    }
     const state = await loadState(currentPageId);
     if (state.running) {
       await pauseTimer();
@@ -230,6 +234,10 @@
   }
 
   async function onReset() {
+    if (!isContextValid()) {
+      alert("This page needs to be refreshed after an extension update.");
+      return;
+    }
     const ok = confirm(
       "Reset the timer for this task to 00:00? This does not change what's already saved in Notion until you start/pause again."
     );
@@ -281,6 +289,16 @@
   // ---------- Status / Done watching ----------
 
   function readCheckboxState(cell) {
+    // Notion renders this as a real <input type="checkbox">. Its "checked"
+    // HTML attribute only reflects the initial default and does not update
+    // when the box is toggled, so we must read the live `.checked` DOM
+    // property rather than getAttribute("checked") or aria-checked (Notion
+    // doesn't set the latter on this element).
+    const input = cell.matches("input[type=checkbox]")
+      ? cell
+      : cell.querySelector("input[type=checkbox]");
+    if (input) return input.checked;
+
     const el = cell.hasAttribute("aria-checked") ? cell : cell.querySelector("[aria-checked]");
     if (!el) return null;
     return el.getAttribute("aria-checked") === "true";
@@ -427,11 +445,25 @@
     }
   }
 
+  // True once the extension is reloaded/updated while this content script
+  // instance is still alive on an old tab (common during development —
+  // e.g. reloading via chrome://extensions without refreshing the Notion
+  // tab). At that point chrome.runtime/chrome.storage calls throw
+  // "Extension context invalidated", so we stop polling instead of
+  // spamming errors; a page refresh reconnects a fresh instance.
+  function isContextValid() {
+    return !!(chrome.runtime && chrome.runtime.id);
+  }
+
   // Poll for URL changes (covers normal navigation, side peeks opening on
   // top of a database view, and side peeks closing) since Notion is a
   // client-rendered SPA using the History API.
   let lastHref = "";
-  setInterval(() => {
+  const urlPollId = setInterval(() => {
+    if (!isContextValid()) {
+      clearInterval(urlPollId);
+      return;
+    }
     if (location.href !== lastHref) {
       lastHref = location.href;
       onUrlChanged();
@@ -441,7 +473,11 @@
   // Main tick: updates the displayed time, triggers the once-a-minute
   // auto-save while running, and keeps the widget anchored inline as
   // Notion re-renders its DOM around it.
-  setInterval(async () => {
+  const mainTickId = setInterval(async () => {
+    if (!isContextValid()) {
+      clearInterval(mainTickId);
+      return;
+    }
     if (!currentPageId) return;
     const state = await loadState(currentPageId);
     if (state.running) {

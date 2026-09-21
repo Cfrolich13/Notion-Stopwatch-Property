@@ -110,13 +110,9 @@ that behavior.
   sync even if you Reset and re-time a task.
 - If you ever revoke or rotate the integration token, just paste the new
   one into the popup.
-- **Done-checkbox detection** (if you configure it) looks for an
-  `aria-checked` attribute on the checkbox's DOM cell to tell checked from
-  unchecked. This hasn't been confirmed against a real Notion checkbox
-  property yet — if checking the box doesn't pause the stopwatch, this is
-  the first thing to check (open dev tools, inspect the checkbox cell, and
-  adjust `readCheckboxState` in `content.js` to match what Notion actually
-  renders).
+- **Done-checkbox detection** (if you configure it) reads the live
+  `.checked` property of Notion's underlying `<input type="checkbox">`.
+  Confirmed working against a real Notion checkbox property.
 - Status/Select value matching is case-insensitive but exact otherwise —
   it expects the literal words "Not started", "In progress", and "Done"
   (Notion's default Status template). A relabeled Status property with

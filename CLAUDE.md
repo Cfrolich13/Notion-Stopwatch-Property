@@ -14,10 +14,10 @@ decisions already made.
 ## Current status
 
 Fully working, iterated through several rounds of user feedback. The version
-described below is the latest. No known open bugs; the "next steps" section
-lists things flagged as best-effort/fragile that may need revisiting, most
-notably the newly added Status/Done-checkbox auto-start/pause feature,
-which hasn't been tried against the user's live Notion markup yet.
+described below is the latest. No known open bugs. The Status/Done-checkbox
+auto-start/pause feature (see item 7 below) has now been confirmed working
+end-to-end by the user, including after fixing the Done-checkbox detection
+heuristic — see "Status/Done watching" for the corrected approach.
 
 ## User's requirements, in the order they came up
 
@@ -50,14 +50,22 @@ which hasn't been tried against the user's live Notion markup yet.
    not fully reliable, a manual exclude-URL field as a backstop. Both were
    implemented. **Not yet confirmed working by the user** — verify first
    if picking this back up.
-7. **Status-driven auto-start/pause** (latest change, **not yet confirmed
-   working by the user**):
+7. **Status-driven auto-start/pause** (**confirmed working by the user**,
+   after one fix — see below):
     - Stopwatch **starts automatically** when a configured Status property's
-      value changes to "In progress" on the open task.
+      value changes to "In progress" on the open task. Confirmed working.
     - Starting the stopwatch **manually** while Status currently reads "Not
-      started" **writes Status = "In progress"** back to Notion.
-    - Stopwatch **pauses automatically** when Status changes to "Done", or
-      when a separately-configured "Done" checkbox property is checked.
+      started" **writes Status = "In progress"** back to Notion. Confirmed
+      working.
+    - Stopwatch **pauses automatically** when Status changes to "Done"
+      (confirmed working), or when a separately-configured "Done" checkbox
+      property is checked (**initially broken**: the first implementation
+      guessed the checkbox exposed its state via an `aria-checked`
+      attribute; the user inspected the real DOM and it's actually a plain
+      `<input type="checkbox">` whose `checked` *attribute* only reflects
+      the initial default and never updates — the live state is only in the
+      `.checked` DOM *property*. Fixed in `readCheckboxState`, then
+      confirmed working).
     - Both the Status property name and the Done checkbox property name are
       **optional settings**, independent of each other (a user with only a
       Done checkbox gets auto-pause but no auto-start, since there's no "In
@@ -193,13 +201,23 @@ of the above, the fix is almost always localized to one function in
   default Status-property option names. A relabeled Status/Select
   property with different option text won't be recognized; this isn't
   configurable beyond the property *name*.
-- **Done-checkbox state** (`readCheckboxState`): looks for an
-  `aria-checked` attribute on the checkbox's value cell (or a descendant
-  of it) and reads `"true"`/`"false"` off of it. This was **not verified
-  against Notion's actual rendered markup** — it's an assumption about how
-  Notion's checkbox property exposes its state via ARIA. If checking the
-  box doesn't trigger auto-pause, inspect the real DOM and adjust this
-  function first.
+- **Done-checkbox state** (`readCheckboxState`): reads the live `.checked`
+  DOM *property* of the `<input type="checkbox">` found inside (or as) the
+  value cell. **Confirmed against real Notion markup** — the user
+  inspected it in DevTools: Notion's checkbox property really is a plain
+  `<input type="checkbox">` (classes like `x10l6tqk xg01cxk xh8yej3
+  x5yr21d x13vifvy x1o0tod x1ypdohk`, presumably compiled/atomic CSS
+  classes not meant to be relied on directly — hence matching on
+  `input[type=checkbox]` instead). The **first implementation was wrong**:
+  it looked for an `aria-checked` attribute, which Notion doesn't set here
+  at all, so auto-pause-on-check silently never fired. The other gotcha
+  that made this take two tries: the `checked` HTML *attribute* on that
+  input only reflects its initial default value and does not update when
+  the box is toggled — `getAttribute("checked")` looks identical whether
+  checked or unchecked. Only the `.checked` IDL/DOM *property* reflects
+  live state, which is what `readCheckboxState` now reads. A generic
+  `aria-checked` lookup is kept as a fallback for robustness if no
+  `<input>` is found, but the primary path is the `.checked` property.
 - **Manual-start status write**: `startTimer()` re-reads the Status cell
   right after marking the timer running; if it reads "not started", it
   fires `NTS_SET_STATUS_IN_PROGRESS` and immediately sets
@@ -224,16 +242,10 @@ of the above, the fix is almost always localized to one function in
 1. Confirm the bare-database-view auto-hide actually works across the
    user's calendar/kanban/table views; adjust `isBareDatabaseView` if
    Notion's `v=`/`p=` param behavior doesn't match what was assumed.
-2. **Confirm the Status/Done-checkbox auto-start/auto-pause feature**
-   end-to-end against the user's real database — this is the most
-   recently added feature and hasn't been tried against live Notion
-   markup yet. In particular, verify `readCheckboxState`'s `aria-checked`
-   assumption actually matches how Notion renders a checkbox property;
-   adjust it if not (see "Status/Done watching" above).
-3. If the user wants it distributed beyond their own machine, consider
+2. If the user wants it distributed beyond their own machine, consider
    Chrome Web Store packaging (icons, store listing, privacy disclosures
    for the Notion API token).
-4. If inline placement proves too fragile as Notion updates their UI,
+3. If inline placement proves too fragile as Notion updates their UI,
    consider a more targeted approach (e.g., MutationObserver-based anchor
    re-acquisition, or scoping the search more tightly using ARIA
    attributes if Notion adds any).
