@@ -166,23 +166,37 @@ Notion changes their app:
   Takes precedence alongside the automatic check (either one hides the
   widget).
 - **Inline anchor placement** (`findPropertyValueCell` /
-  `walkUpForSibling`): searches for a DOM element whose trimmed text
-  content exactly equals the configured property name (two passes: strict
-  leaf-node match, then a looser match allowing a small wrapping element
-  for an icon/span), then walks up to find a sibling element to treat as
-  the "value cell," and inserts the widget right after it via
+  `findValueCellForLabel` / `walkUpForSibling`): searches for a DOM element
+  whose trimmed text content exactly equals the configured property name
+  (two passes: strict leaf-node match, then a looser match allowing a
+  small wrapping element for an icon/span). To find the matching "value
+  cell," `findValueCellForLabel` first tries Notion's ARIA grid structure:
+  each property row is `[role="row"]` containing (usually two)
+  `[role="cell"]` elements — one for the label (which can be wrapped
+  several plain `<div>`s deep before reaching the row), one for the value.
+  It walks up to the nearest `[role="row"]` ancestor of the matched label
+  text, then returns whichever `[role="cell"]` in that row does *not*
+  contain the label element. This replaced an earlier version that just
+  walked up a **fixed 5 ancestor levels** looking for a visible
+  `nextElementSibling` (`walkUpForSibling`, kept as a fallback if no
+  `[role="row"]` is found) — that fixed depth happened to work for the
+  Number and Status properties' DOM nesting but was one or two levels too
+  shallow for a checkbox property's row (see "Status/Done watching"
+  below), so `findPropertyValueCell` silently returned nothing for it.
+  The anchor is inserted right after via
   `insertAdjacentElement("afterend", ...)`. Scoped to the last
   `[role="dialog"]` on the page when one exists (side peek), otherwise the
   whole document. Falls back to a fixed bottom-right floating pill if no
-  anchor is found. This has **no guaranteed stability** — Notion's DOM
-  structure is unobfuscated-by-us but also undocumented and can change
-  between Notion releases.
+  anchor is found. This still has **no guaranteed stability** — Notion's
+  DOM structure is unobfuscated-by-us but also undocumented and can change
+  between Notion releases — but the role="row"/"cell" structure is a more
+  principled signal to key off than a hardcoded ancestor-depth count.
 
 If Notion changes their markup or URL structure in a way that breaks any
 of the above, the fix is almost always localized to one function in
 `content.js` — the rest of the architecture doesn't need to change.
 
-## Status/Done watching (also fragile/best-effort, **unconfirmed**)
+## Status/Done watching (also fragile/best-effort)
 
 - **Edge-triggered, not level-triggered**: `checkStatusTransitions` (run
   every 1s alongside the existing tick) only acts on an observed *change*
@@ -203,21 +217,28 @@ of the above, the fix is almost always localized to one function in
   configurable beyond the property *name*.
 - **Done-checkbox state** (`readCheckboxState`): reads the live `.checked`
   DOM *property* of the `<input type="checkbox">` found inside (or as) the
-  value cell. **Confirmed against real Notion markup** — the user
-  inspected it in DevTools: Notion's checkbox property really is a plain
-  `<input type="checkbox">` (classes like `x10l6tqk xg01cxk xh8yej3
-  x5yr21d x13vifvy x1o0tod x1ypdohk`, presumably compiled/atomic CSS
-  classes not meant to be relied on directly — hence matching on
-  `input[type=checkbox]` instead). The **first implementation was wrong**:
-  it looked for an `aria-checked` attribute, which Notion doesn't set here
-  at all, so auto-pause-on-check silently never fired. The other gotcha
-  that made this take two tries: the `checked` HTML *attribute* on that
-  input only reflects its initial default value and does not update when
-  the box is toggled — `getAttribute("checked")` looks identical whether
-  checked or unchecked. Only the `.checked` IDL/DOM *property* reflects
-  live state, which is what `readCheckboxState` now reads. A generic
-  `aria-checked` lookup is kept as a fallback for robustness if no
-  `<input>` is found, but the primary path is the `.checked` property.
+  value cell returned by `findPropertyValueCell`. This took **two rounds**
+  to get right, both diagnosed from real DevTools markup the user pasted
+  in:
+  1. The first implementation looked for an `aria-checked` attribute,
+     which Notion doesn't set on this element at all — it's a plain
+     `<input type="checkbox">` (classes like `x10l6tqk xg01cxk xh8yej3
+     x5yr21d x13vifvy x1o0tod x1ypdohk` — compiled/atomic CSS, not meant to
+     be relied on, hence matching on `input[type=checkbox]` instead). Also
+     note the input's `checked` HTML *attribute* only reflects its initial
+     default and never updates on toggle — only the `.checked` IDL/DOM
+     *property* reflects live state, which is what `readCheckboxState`
+     reads (with a generic `aria-checked` lookup kept only as a fallback
+     if no `<input>` is found).
+  2. Fixing that alone still didn't work: `findPropertyValueCell("Done")`
+     was returning `null` for this property in the first place. Notion's
+     checkbox property row nests the label text ~6-7 ancestor levels below
+     the row (extra wrapper `<div>`s not present for other property
+     types), deeper than the old `walkUpForSibling`'s fixed 5-level
+     search. Fixed by adding `findValueCellForLabel`, which uses the
+     `[role="row"]`/`[role="cell"]` ARIA structure instead of a hardcoded
+     depth (see "Inline anchor placement" above). **Confirmed working**
+     after both fixes.
 - **Manual-start status write**: `startTimer()` re-reads the Status cell
   right after marking the timer running; if it reads "not started", it
   fires `NTS_SET_STATUS_IN_PROGRESS` and immediately sets

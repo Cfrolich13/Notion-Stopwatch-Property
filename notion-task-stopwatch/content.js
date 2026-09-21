@@ -358,7 +358,7 @@
         el.textContent.trim() === name &&
         isVisible(el)
       ) {
-        const cell = walkUpForSibling(el);
+        const cell = findValueCellForLabel(el);
         if (cell) return cell;
       }
     }
@@ -369,11 +369,30 @@
         el.textContent.trim() === name &&
         isVisible(el)
       ) {
-        const cell = walkUpForSibling(el);
+        const cell = findValueCellForLabel(el);
         if (cell) return cell;
       }
     }
     return null;
+  }
+
+  function findValueCellForLabel(nameEl) {
+    // Notion lays out each property row with ARIA grid semantics:
+    // [role="row"] containing a [role="cell"] for the label (which can be
+    // wrapped several layout <div>s deep before reaching the row) and a
+    // second [role="cell"] for the value. Preferring this over walking a
+    // fixed number of ancestor levels avoids breaking on rows where the
+    // label happens to be nested deeper (e.g. checkbox properties).
+    const row = nameEl.closest('[role="row"]');
+    if (row) {
+      const cells = row.querySelectorAll('[role="cell"]');
+      for (const cell of cells) {
+        if (!cell.contains(nameEl) && isVisible(cell)) {
+          return cell;
+        }
+      }
+    }
+    return walkUpForSibling(nameEl);
   }
 
   function walkUpForSibling(nameEl) {
