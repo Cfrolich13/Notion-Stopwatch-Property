@@ -14,10 +14,14 @@ decisions already made.
 ## Current status
 
 Fully working, iterated through several rounds of user feedback. The version
-described below is the latest. No known open bugs. The Status/Done-checkbox
-auto-start/pause feature (see item 7 below) has now been confirmed working
-end-to-end by the user, including after fixing the Done-checkbox detection
-heuristic — see "Status/Done watching" for the corrected approach.
+described below is the latest. Status-driven auto-start/pause is confirmed
+working end-to-end. Done-checkbox auto-pause is confirmed working on a full
+page; it was broken specifically in side peeks (root-caused via DevTools
+markup the user provided — see "Status/Done watching" and "Inline anchor
+placement" below for the two-part fix: the peek wasn't actually scoped at
+all, and a same-named property *value* could shadow the real label) but
+**the fix has not yet been re-confirmed by the user in a side peek** —
+verify that first if picking this back up.
 
 ## User's requirements, in the order they came up
 
@@ -166,31 +170,56 @@ Notion changes their app:
   Takes precedence alongside the automatic check (either one hides the
   widget).
 - **Inline anchor placement** (`findPropertyValueCell` /
-  `findValueCellForLabel` / `walkUpForSibling`): searches for a DOM element
-  whose trimmed text content exactly equals the configured property name
-  (two passes: strict leaf-node match, then a looser match allowing a
-  small wrapping element for an icon/span). To find the matching "value
-  cell," `findValueCellForLabel` first tries Notion's ARIA grid structure:
-  each property row is `[role="row"]` containing (usually two)
-  `[role="cell"]` elements — one for the label (which can be wrapped
-  several plain `<div>`s deep before reaching the row), one for the value.
-  It walks up to the nearest `[role="row"]` ancestor of the matched label
-  text, then returns whichever `[role="cell"]` in that row does *not*
-  contain the label element. This replaced an earlier version that just
-  walked up a **fixed 5 ancestor levels** looking for a visible
-  `nextElementSibling` (`walkUpForSibling`, kept as a fallback if no
-  `[role="row"]` is found) — that fixed depth happened to work for the
-  Number and Status properties' DOM nesting but was one or two levels too
-  shallow for a checkbox property's row (see "Status/Done watching"
-  below), so `findPropertyValueCell` silently returned nothing for it.
-  The anchor is inserted right after via
-  `insertAdjacentElement("afterend", ...)`. Scoped to the last
-  `[role="dialog"]` on the page when one exists (side peek), otherwise the
-  whole document. Falls back to a fixed bottom-right floating pill if no
-  anchor is found. This still has **no guaranteed stability** — Notion's
-  DOM structure is unobfuscated-by-us but also undocumented and can change
-  between Notion releases — but the role="row"/"cell" structure is a more
-  principled signal to key off than a hardcoded ancestor-depth count.
+  `isPropertyLabelText` / `findValueCellForLabel` / `walkUpForSibling` /
+  `getPropertiesScope`): searches for a DOM element whose trimmed text
+  content exactly equals the configured property name (two passes: strict
+  leaf-node match, then a looser match allowing a small wrapping element
+  for an icon/span), **and** whose nearest `[role="cell"]` ancestor has
+  `aria-haspopup="dialog"` (`isPropertyLabelText`) — that attribute is
+  only present on a real property *label* cell (it's what opens Notion's
+  property-type editor popup), never on a value cell. This guard was added
+  after a real collision: a Select/Status property's own rendered *value*
+  can coincidentally contain text identical to another property's *name*
+  (e.g. a Status option literally named "Done" vs. a separate "Done"
+  checkbox property), and without the guard the text-matching passes could
+  anchor on that value instead of the real label — see "Status/Done
+  watching" below for how this manifested.
+  To find the matching "value cell" once a genuine label is found,
+  `findValueCellForLabel` uses Notion's ARIA grid structure: each property
+  row is `[role="row"]` containing (usually two) `[role="cell"]`
+  elements — one for the label (which can be wrapped several plain
+  `<div>`s deep before reaching the row), one for the value. It walks up
+  to the nearest `[role="row"]` ancestor of the matched label text, then
+  returns whichever `[role="cell"]` in that row does *not* contain the
+  label element. This replaced an earlier version that just walked up a
+  **fixed 5 ancestor levels** looking for a visible `nextElementSibling`
+  (`walkUpForSibling`, kept as a fallback if no `[role="row"]` is found) —
+  that fixed depth happened to work for the Number and Status properties'
+  DOM nesting but was one or two levels too shallow for a checkbox
+  property's row, so `findPropertyValueCell` silently returned nothing for
+  it. The anchor is inserted right after via
+  `insertAdjacentElement("afterend", ...)`.
+  **Scoping** (`getPropertiesScope`): every property panel (full page or
+  side peek) is wrapped in `[role="table"][aria-label="Page properties"]`
+  in Notion's markup — search is scoped to the last such table in document
+  order (falls back to the last `[role="dialog"]`, then the whole
+  document, if none is found). An earlier version scoped only to
+  `[role="dialog"]` on the assumption a side peek renders as one — **it
+  doesn't**, confirmed via DevTools (a live check found zero `[role="dialog"]`
+  elements while a peek was open), so that scoping silently did nothing
+  and searches fell through to the *entire document* — including a
+  database view's own per-row checkbox column sitting behind the peek
+  (110 checkboxes matched in one observed case). This is why Status
+  auto-pause worked in a peek but Done-checkbox auto-pause didn't: with an
+  unscoped, whole-document search, a table/kanban view's own "Done" column
+  cells (rendered without the `aria-haspopup` label marker at all) were
+  silently skipped by luck of DOM order for Status but not for Done. Falls
+  back to a fixed bottom-right floating pill if no anchor is found. This
+  still has **no guaranteed stability** — Notion's DOM structure is
+  unobfuscated-by-us but also undocumented and can change between Notion
+  releases — but the role="row"/"cell"/"table" ARIA structure and the
+  `aria-haspopup` label marker are more principled signals to key off than
+  a hardcoded ancestor-depth count or an assumed dialog role.
 
 If Notion changes their markup or URL structure in a way that breaks any
 of the above, the fix is almost always localized to one function in
@@ -237,8 +266,30 @@ of the above, the fix is almost always localized to one function in
      types), deeper than the old `walkUpForSibling`'s fixed 5-level
      search. Fixed by adding `findValueCellForLabel`, which uses the
      `[role="row"]`/`[role="cell"]` ARIA structure instead of a hardcoded
-     depth (see "Inline anchor placement" above). **Confirmed working**
-     after both fixes.
+     depth (see "Inline anchor placement" above). **Confirmed working on a
+     full page** after both fixes.
+  3. Still broken **in a side peek specifically** (Status auto-pause
+     worked there, Done-checkbox auto-pause didn't). Root-caused by adding
+     temporary diagnostic logging and having the user reproduce it with
+     the console open: `getPeekContainer` (the old scoping function)
+     assumed a side peek renders as `[role="dialog"]` — a live check
+     showed **zero** such elements while a peek was open, so scoping
+     silently no-opped and the search ran over the *entire document*,
+     including a database view's own "Done" checkbox column rendered
+     behind the peek for every row (110 checkboxes in the user's case).
+     On top of that, even correctly scoped to just the open page's own
+     properties, the Status property's *value* pill can literally display
+     the text "Done" (whenever Status reads "Done" — precisely when
+     auto-pause-on-Status also fires), which the old text-only matcher
+     could mistake for the Done-checkbox property's *label*. Fixed with
+     two changes, both described under "Inline anchor placement" above:
+     `getPropertiesScope` (scopes to `[role="table"][aria-label="Page
+     properties"]` instead of the nonexistent dialog role) and
+     `isPropertyLabelText` (requires `aria-haspopup="dialog"` on the
+     matched element's cell, which only real labels have). **This fix has
+     not yet been re-confirmed by the user in a side peek** — it was
+     derived from static analysis of DOM the user pasted, not from a live
+     retest. Verify next if picking this back up.
 - **Manual-start status write**: `startTimer()` re-reads the Status cell
   right after marking the timer running; if it reads "not started", it
   fires `NTS_SET_STATUS_IN_PROGRESS` and immediately sets
@@ -260,13 +311,19 @@ of the above, the fix is almost always localized to one function in
 
 ## Suggested next steps if resuming
 
-1. Confirm the bare-database-view auto-hide actually works across the
+1. **Confirm the Done-checkbox auto-pause fix works in a side peek** —
+   the most recent change (`getPropertiesScope` + `isPropertyLabelText`,
+   see "Status/Done watching" and "Inline anchor placement") was derived
+   from static analysis of pasted DOM, not a live retest. If it's still
+   broken, ask for fresh DevTools markup/console output the same way as
+   before rather than guessing further.
+2. Confirm the bare-database-view auto-hide actually works across the
    user's calendar/kanban/table views; adjust `isBareDatabaseView` if
    Notion's `v=`/`p=` param behavior doesn't match what was assumed.
-2. If the user wants it distributed beyond their own machine, consider
+3. If the user wants it distributed beyond their own machine, consider
    Chrome Web Store packaging (icons, store listing, privacy disclosures
    for the Notion API token).
-3. If inline placement proves too fragile as Notion updates their UI,
+4. If inline placement proves too fragile as Notion updates their UI,
    consider a more targeted approach (e.g., MutationObserver-based anchor
    re-acquisition, or scoping the search more tightly using ARIA
    attributes if Notion adds any).

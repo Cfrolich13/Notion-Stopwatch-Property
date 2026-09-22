@@ -111,8 +111,10 @@ that behavior.
 - If you ever revoke or rotate the integration token, just paste the new
   one into the popup.
 - **Done-checkbox detection** (if you configure it) reads the live
-  `.checked` property of Notion's underlying `<input type="checkbox">`.
-  Confirmed working against a real Notion checkbox property.
+  `.checked` property of Notion's underlying `<input type="checkbox">`,
+  and only searches within the currently open page's own property panel
+  (confirmed on a full page; a side-peek-specific scoping bug was found
+  and fixed but not yet re-confirmed live).
 - Status/Select value matching is case-insensitive but exact otherwise —
   it expects the literal words "Not started", "In progress", and "Done"
   (Notion's default Status template). A relabeled Status property with

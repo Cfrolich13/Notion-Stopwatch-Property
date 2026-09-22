@@ -333,10 +333,27 @@
 
   // ---------- inline placement next to the Notion property ----------
 
-  function getPeekContainer() {
-    // A side peek renders as an overlay dialog; scope the search to it so
-    // we don't accidentally match a same-named property/column elsewhere
-    // on the underlying page.
+  function getPropertiesScope() {
+    // Notion renders each open page's property panel (full page or side
+    // peek) as role="table" aria-label="Page properties" — scope searches
+    // to that instead of the whole document, so we don't accidentally
+    // match a same-named property/column on a database view visible
+    // behind an open side peek. If a page has multiple such tables in the
+    // DOM at once (e.g. a peek layered over a full page), the last one in
+    // document order is the one actually on top/in focus.
+    //
+    // An earlier version scoped to the last [role="dialog"], assuming a
+    // side peek renders as one — it doesn't (confirmed via DevTools: no
+    // dialog role present at all), so that scoping silently did nothing
+    // and searches fell through to the whole document, colliding with
+    // every other same-named property on screen (e.g. a "Done" checkbox
+    // column rendered for every row of the database view behind the
+    // peek). [role="dialog"] is kept as a fallback only in case some
+    // Notion layout still uses it.
+    const tables = document.querySelectorAll(
+      '[role="table"][aria-label="Page properties"]'
+    );
+    if (tables.length) return tables[tables.length - 1];
     const dialogs = document.querySelectorAll('[role="dialog"]');
     return dialogs.length ? dialogs[dialogs.length - 1] : null;
   }
@@ -347,8 +364,19 @@
     return rect.width > 0 && rect.height > 0;
   }
 
+  function isPropertyLabelText(el) {
+    // A property's rendered VALUE can coincidentally contain text that
+    // exactly matches another property's NAME (e.g. a Status option
+    // literally named "Done" colliding with a separate "Done" checkbox
+    // property). Only the real label cell has aria-haspopup="dialog" (it
+    // opens the property-type editor); value cells don't. Require that so
+    // we never anchor on a value that merely looks like a label.
+    const cell = el.closest('[role="cell"]');
+    return !!cell && cell.hasAttribute("aria-haspopup");
+  }
+
   function findPropertyValueCell(name) {
-    const scope = getPeekContainer() || document;
+    const scope = getPropertiesScope() || document;
     const candidates = scope.querySelectorAll("div, span");
 
     // Pass 1: strict leaf-node text match.
@@ -356,7 +384,8 @@
       if (
         el.childElementCount === 0 &&
         el.textContent.trim() === name &&
-        isVisible(el)
+        isVisible(el) &&
+        isPropertyLabelText(el)
       ) {
         const cell = findValueCellForLabel(el);
         if (cell) return cell;
@@ -367,7 +396,8 @@
       if (
         el.childElementCount <= 2 &&
         el.textContent.trim() === name &&
-        isVisible(el)
+        isVisible(el) &&
+        isPropertyLabelText(el)
       ) {
         const cell = findValueCellForLabel(el);
         if (cell) return cell;
