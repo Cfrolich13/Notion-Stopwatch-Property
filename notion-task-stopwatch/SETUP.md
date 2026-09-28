@@ -112,9 +112,8 @@ that behavior.
   one into the popup.
 - **Done-checkbox detection** (if you configure it) reads the live
   `.checked` property of Notion's underlying `<input type="checkbox">`,
-  and only searches within the currently open page's own property panel
-  (confirmed on a full page; a side-peek-specific scoping bug was found
-  and fixed but not yet re-confirmed live).
+  and only searches within the currently open page's own property panel —
+  works on both full pages and side peeks.
 - Status/Select value matching is case-insensitive but exact otherwise —
   it expects the literal words "Not started", "In progress", and "Done"
   (Notion's default Status template). A relabeled Status property with
