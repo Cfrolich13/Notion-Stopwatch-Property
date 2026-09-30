@@ -1,3 +1,6 @@
+// Settings popup. Everything persists to chrome.storage.local, which the
+// content script watches via storage.onChanged — no reload needed.
+
 const tokenInput = document.getElementById("token");
 const propertyInput = document.getElementById("property");
 const statusPropertyInput = document.getElementById("statusProperty");
@@ -30,6 +33,7 @@ async function load() {
 saveBtn.addEventListener("click", async () => {
   const notionToken = tokenInput.value.trim();
   const propertyName = propertyInput.value.trim() || "Time Spent (min)";
+  // Empty = that automation is off.
   const statusPropertyName = statusPropertyInput.value.trim();
   const doneCheckboxPropertyName = doneCheckboxPropertyInput.value.trim();
   const excludePatterns = excludeInput.value

@@ -23,11 +23,8 @@
   // ---------- id / state helpers ----------
 
   function extractPageId(href) {
-    // Grab every 32-char hex id in the URL (path + query) and use the
-    // LAST one. In a normal full-page URL there's only one (the page).
-    // When a side peek is open on top of a database/list view, Notion
-    // appends the peeked page's id later in the URL (e.g. ...&p=<id>),
-    // so the last match correctly tracks whichever page is in focus.
+    // Use the LAST 32-hex id in the URL: a side peek appends its page id
+    // after the underlying view's (…&p=<id>), so last = page in focus.
     const matches = [...href.matchAll(/[0-9a-fA-F]{32}/g)];
     if (matches.length === 0) return null;
     return matches[matches.length - 1][0].toLowerCase();
@@ -42,6 +39,8 @@
     return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
   }
 
+  // Storage (not in-memory state) is the source of truth, so every read
+  // goes through loadState — keeps multiple tabs on the same page in sync.
   function storageKey(pageId) {
     return `nts_state_${pageId}`;
   }
@@ -97,6 +96,8 @@
         : [];
       onUrlChanged(); // re-evaluate the current page against the new list
     }
+    // A different property means a different value; re-baseline so the
+    // switch itself isn't read as a transition.
     if (changes.statusPropertyName) {
       statusPropertyName = changes.statusPropertyName.newValue || "";
       lastObservedStatus = null;
@@ -110,10 +111,8 @@
   // ---------- database-view / exclude detection ----------
 
   function isBareDatabaseView(href) {
-    // A database opened as a calendar/kanban/table/list/gallery view (no
-    // page open) carries a view id ("v=...") but no peeked-page id
-    // ("p=..."). If we see a view id with no peek id, no page is actually
-    // open, so there's nothing to time.
+    // A view id (v=) with no peeked-page id (p=) means a database view is
+    // showing with no page open — nothing to time.
     try {
       const u = new URL(href);
       const hex32 = /^[0-9a-fA-F]{32}$/;
@@ -125,6 +124,7 @@
     }
   }
 
+  // Patterns are case-insensitive substrings, or regexes when wrapped in /…/.
   function matchesExcludePattern(href) {
     return excludePatterns.some((raw) => {
       const pattern = (raw || "").trim();
@@ -152,6 +152,7 @@
       <button class="nts-reset" title="Reset">↺</button>
       <span class="nts-dot" title=""></span>
     `;
+    // Outside <body> so Notion's React re-renders can't wipe it out.
     document.documentElement.appendChild(root);
 
     els = {
@@ -171,6 +172,7 @@
     // kind: '' | 'saving' | 'saved' | 'error'
     els.dot.className = "nts-dot" + (kind ? ` nts-dot-${kind}` : "");
     els.dot.title = title || "";
+    // Terminal states fade after a few seconds; "saving" stays until resolved.
     if (kind === "saved" || kind === "error") {
       clearTimeout(setDot._t);
       setDot._t = setTimeout(() => {
@@ -208,14 +210,16 @@
     if (state.running) return;
     state.running = true;
     state.lastStartTs = Date.now();
-    if (!state.lastAutoSaveAt) state.lastAutoSaveAt = Date.now();
+    if (!state.lastAutoSaveAt) state.lastAutoSaveAt = Date.now(); // first auto-save 60s from now
     await saveState(currentPageId, state);
     await render();
 
+    // Manual start on a "Not started" task moves it to "In progress".
     if (statusPropertyName) {
       const cell = findPropertyValueCell(statusPropertyName);
       const text = cell ? cell.textContent.trim().toLowerCase() : null;
       if (text === "not started") {
+        // Pre-set the baseline so our own write isn't seen as a transition.
         lastObservedStatus = "in progress";
         pushStatusInProgress();
       }
@@ -230,7 +234,7 @@
     state.lastStartTs = null;
     await saveState(currentPageId, state);
     await render();
-    await pushToNotion(state.elapsedMs);
+    await pushToNotion(state.elapsedMs); // every pause saves
   }
 
   async function onReset() {
@@ -242,6 +246,7 @@
       "Reset the timer for this task to 00:00? This does not change what's already saved in Notion until you start/pause again."
     );
     if (!ok) return;
+    // Local-only: Notion keeps the old value until the next save overwrites it.
     const state = {
       elapsedMs: 0,
       running: false,
@@ -252,6 +257,7 @@
     await render();
   }
 
+  // Sends the running total (not a delta) — background overwrites the property.
   async function pushToNotion(elapsedMs) {
     const minutes = Math.round((elapsedMs / 60000) * 100) / 100;
     setDot("saving", "Saving…");
@@ -289,21 +295,22 @@
   // ---------- Status / Done watching ----------
 
   function readCheckboxState(cell) {
-    // Notion renders this as a real <input type="checkbox">. Its "checked"
-    // HTML attribute only reflects the initial default and does not update
-    // when the box is toggled, so we must read the live `.checked` DOM
-    // property rather than getAttribute("checked") or aria-checked (Notion
-    // doesn't set the latter on this element).
+    // Must read the live `.checked` property: the `checked` attribute is
+    // only the initial default and never updates on toggle.
     const input = cell.matches("input[type=checkbox]")
       ? cell
       : cell.querySelector("input[type=checkbox]");
     if (input) return input.checked;
 
+    // Fallback in case Notion ever renders a non-<input> checkbox.
     const el = cell.hasAttribute("aria-checked") ? cell : cell.querySelector("[aria-checked]");
     if (!el) return null;
     return el.getAttribute("aria-checked") === "true";
   }
 
+  // Edge-triggered: acts only when a value *changes* from a known previous
+  // reading (prev !== null), so opening an already-"In progress" task
+  // doesn't force-start the timer.
   async function checkStatusTransitions() {
     if (!currentPageId) return;
 
@@ -334,22 +341,11 @@
   // ---------- inline placement next to the Notion property ----------
 
   function getPropertiesScope() {
-    // Notion renders each open page's property panel (full page or side
-    // peek) as role="table" aria-label="Page properties" — scope searches
-    // to that instead of the whole document, so we don't accidentally
-    // match a same-named property/column on a database view visible
-    // behind an open side peek. If a page has multiple such tables in the
-    // DOM at once (e.g. a peek layered over a full page), the last one in
-    // document order is the one actually on top/in focus.
-    //
-    // An earlier version scoped to the last [role="dialog"], assuming a
-    // side peek renders as one — it doesn't (confirmed via DevTools: no
-    // dialog role present at all), so that scoping silently did nothing
-    // and searches fell through to the whole document, colliding with
-    // every other same-named property on screen (e.g. a "Done" checkbox
-    // column rendered for every row of the database view behind the
-    // peek). [role="dialog"] is kept as a fallback only in case some
-    // Notion layout still uses it.
+    // Scope lookups to the open page's properties table so a same-named
+    // column on a database view behind a side peek can't match. With
+    // several tables (peek over a full page), the last one is on top.
+    // Side peeks have no [role="dialog"] (verified in DevTools); it's only
+    // a fallback in case some Notion layout uses one.
     const tables = document.querySelectorAll(
       '[role="table"][aria-label="Page properties"]'
     );
@@ -365,12 +361,9 @@
   }
 
   function isPropertyLabelText(el) {
-    // A property's rendered VALUE can coincidentally contain text that
-    // exactly matches another property's NAME (e.g. a Status option
-    // literally named "Done" colliding with a separate "Done" checkbox
-    // property). Only the real label cell has aria-haspopup="dialog" (it
-    // opens the property-type editor); value cells don't. Require that so
-    // we never anchor on a value that merely looks like a label.
+    // A value can match another property's name (e.g. Status option "Done"
+    // vs. a "Done" checkbox). Only real label cells carry aria-haspopup
+    // (they open the property editor), so require it.
     const cell = el.closest('[role="cell"]');
     return !!cell && cell.hasAttribute("aria-haspopup");
   }
@@ -407,12 +400,9 @@
   }
 
   function findValueCellForLabel(nameEl) {
-    // Notion lays out each property row with ARIA grid semantics:
-    // [role="row"] containing a [role="cell"] for the label (which can be
-    // wrapped several layout <div>s deep before reaching the row) and a
-    // second [role="cell"] for the value. Preferring this over walking a
-    // fixed number of ancestor levels avoids breaking on rows where the
-    // label happens to be nested deeper (e.g. checkbox properties).
+    // Each property is a [role="row"] with a label cell and a value cell.
+    // Using the ARIA row beats walking a fixed number of ancestors, since
+    // label nesting depth varies by property type (e.g. checkboxes).
     const row = nameEl.closest('[role="row"]');
     if (row) {
       const cells = row.querySelectorAll('[role="cell"]');
@@ -425,6 +415,8 @@
     return walkUpForSibling(nameEl);
   }
 
+  // Fallback for layouts without ARIA rows: nearest visible next sibling
+  // within a few ancestor levels.
   function walkUpForSibling(nameEl) {
     let node = nameEl;
     let depth = 0;
@@ -438,12 +430,13 @@
     return null;
   }
 
+  // Called every tick, since Notion re-renders and can detach the widget.
   function placeWidget() {
     if (!widgetRoot || !currentPageId) return;
     const anchor = findPropertyValueCell(propertyName);
 
     if (anchor) {
-      // Avoid re-inserting on every tick if we're already positioned there.
+      // Skip DOM moves when already in place, to avoid churn every tick.
       if (widgetRoot.previousElementSibling !== anchor || !anchor.parentElement) {
         anchor.insertAdjacentElement("afterend", widgetRoot);
       }
@@ -462,6 +455,7 @@
     currentPageId = pageId;
     await refreshPropertyName();
     await refreshStatusSettings();
+    // New page: first Status/Done read is a baseline, not a transition.
     lastObservedStatus = null;
     lastObservedDoneChecked = null;
     if (!widgetRoot) widgetRoot = buildWidget();
@@ -494,19 +488,15 @@
     }
   }
 
-  // True once the extension is reloaded/updated while this content script
-  // instance is still alive on an old tab (common during development —
-  // e.g. reloading via chrome://extensions without refreshing the Notion
-  // tab). At that point chrome.runtime/chrome.storage calls throw
-  // "Extension context invalidated", so we stop polling instead of
-  // spamming errors; a page refresh reconnects a fresh instance.
+  // False once the extension is reloaded/updated under a still-open tab:
+  // chrome.* calls then throw "Extension context invalidated", so callers
+  // bail out instead of spamming errors. A page refresh reconnects.
   function isContextValid() {
     return !!(chrome.runtime && chrome.runtime.id);
   }
 
-  // Poll for URL changes (covers normal navigation, side peeks opening on
-  // top of a database view, and side peeks closing) since Notion is a
-  // client-rendered SPA using the History API.
+  // Poll the URL: Notion navigates via the History API (including side
+  // peeks opening/closing), which fires no event a content script can hook.
   let lastHref = "";
   const urlPollId = setInterval(() => {
     if (!isContextValid()) {
@@ -519,9 +509,8 @@
     }
   }, 500);
 
-  // Main tick: updates the displayed time, triggers the once-a-minute
-  // auto-save while running, and keeps the widget anchored inline as
-  // Notion re-renders its DOM around it.
+  // Main tick: redraws the time, runs the 60s auto-save, re-anchors the
+  // widget, and checks Status/Done transitions.
   const mainTickId = setInterval(async () => {
     if (!isContextValid()) {
       clearInterval(mainTickId);

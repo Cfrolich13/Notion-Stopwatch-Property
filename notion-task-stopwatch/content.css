@@ -1,6 +1,6 @@
 #nts-widget-root {
-  all: initial;
-  display: inline-flex !important;
+  all: initial; /* isolate from Notion's inherited styles */
+  display: inline-flex;
   align-items: center;
   gap: 6px;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
@@ -11,7 +11,7 @@
   padding: 3px 8px 3px 10px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  z-index: 2147483647;
+  z-index: 2147483647; /* max, so the floating pill stays above Notion UI */
   white-space: nowrap;
   vertical-align: middle;
 }

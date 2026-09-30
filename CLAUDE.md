@@ -98,3 +98,9 @@ suite in this repo.
 - For fragility details on any specific heuristic (URL parsing, bare
   database view detection, inline anchoring), see `SETUP.md`'s "Notes &
   limitations" section rather than duplicating it here.
+
+## Code style
+
+- Comments: concise and skimmable. Explain *why* something is done a
+  particular way, not what the code does. Short inline comments are fine
+  where they help; avoid long paragraph comments.

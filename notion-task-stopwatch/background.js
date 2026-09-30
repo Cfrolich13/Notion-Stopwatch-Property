@@ -1,11 +1,13 @@
 // Notion Task Stopwatch — background service worker
-// Handles the actual write to the Notion API so the content script never
-// needs to hold the integration token in page context.
+// The only code that calls the Notion API, so the integration token never
+// enters page context and we don't depend on Notion's CORS policy.
 
-const NOTION_VERSION = "2022-06-28";
+// Required header; responses follow this version. Only page GET/PATCH are
+// used here, which no version since 2022-06-28 has broken.
+const NOTION_VERSION = "2026-03-11";
 
+// URLs carry undashed ids; the API expects dashed UUIDs.
 function toDashedId(id) {
-  // Notion's API wants page ids in dashed UUID form.
   if (id.includes("-")) return id;
   return id.replace(
     /^(.{8})(.{4})(.{4})(.{4})(.{12})$/,
@@ -82,12 +84,15 @@ async function getPage(pageId) {
   return data;
 }
 
+// Overwrites (never increments) with the running total, so Reset-then-retime
+// can't double-count. Default name must match popup.js / content.js.
 async function saveTimeToNotion(pageId, minutes) {
   const { propertyName } = await chrome.storage.local.get("propertyName");
   const prop = propertyName && propertyName.trim() ? propertyName.trim() : "Time Spent (min)";
   return patchPageProperties(pageId, { [prop]: { number: minutes } });
 }
 
+// GET first: the PATCH payload shape differs for Status vs. Select properties.
 async function setStatusInProgress(pageId, statusPropertyName) {
   const page = await getPage(pageId);
   const prop = page.properties && page.properties[statusPropertyName];
