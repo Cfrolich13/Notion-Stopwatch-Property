@@ -8,9 +8,10 @@ accumulated time (in minutes) is written automatically to a Number
 property on that page's database entry via the Notion API. Optional
 settings let a Status property and/or a Done checkbox drive the stopwatch
 automatically. There's no build step — the extension is loaded unpacked
-directly into Chrome (see `README.md` for install steps, `SETUP.md` for
-the Notion-side integration setup). No package manager, linter, or test
-suite in this repo.
+directly into Chrome (see `README.md` for install steps,
+`notion-task-stopwatch/SETUP.md` for the Notion-side integration setup).
+No package manager, linter, or automated test suite in this repo; changes
+are verified by hand in live Notion (see "Testing" below).
 
 ## Features
 
@@ -35,13 +36,32 @@ suite in this repo.
 
 ## File structure
 
+The extension's source is **not** at the repo root — it lives in
+`notion-task-stopwatch/`, which is the folder loaded unpacked into Chrome.
+
+```
+CLAUDE.md                 this file
+README.md                 install-as-unpacked-extension instructions
+docs/                     agent-facing notes, read on demand
+  testing.md              how to test in live Notion via browser tools
+notion-task-stopwatch/    the extension (everything below is in here)
+  manifest.json
+  content.js
+  content.css
+  background.js
+  popup.html, popup.js
+  SETUP.md
+```
+
+Inside `notion-task-stopwatch/`:
+
 - `manifest.json` — MV3 config; host permissions for the Notion API and
   both `notion.so`/`app.notion.com` hosts; content script + background
   service worker + popup wiring.
 - `content.js` — everything that runs on the Notion page: page-id
   extraction from the URL, per-page timer state, the widget DOM, inline
   anchoring, auto-save triggers, bare-view/exclude detection, and
-  Status/Done-checkbox watching.
+  Status/Done-checkbox watching. Nearly every behavior change lands here.
 - `background.js` — the only code that talks to the Notion API (reads
   settings, PATCHes the time property, GETs+PATCHes the Status property).
 - `popup.html` / `popup.js` — settings UI (token, property names, exclude
@@ -49,7 +69,6 @@ suite in this repo.
 - `content.css` — widget styling.
 - `SETUP.md` — end-user walkthrough for Notion integration setup, plus a
   "Notes & limitations" section on each DOM/URL heuristic's fragility.
-- `README.md` — install-as-unpacked-extension instructions.
 
 ## Key design decisions
 
@@ -67,12 +86,20 @@ suite in this repo.
   reading is reset to "unknown" on page activation and on a settings
   change, so the first read after either is a baseline, not a transition —
   otherwise opening a task that's already "In progress" would force-start
-  the timer. The reset happens in the same synchronous step as the
-  `currentPageId` change (no `await` between them), and for `SETTLE_MS`
-  after activation readings only re-baseline — otherwise switching between
-  two pages in one side peek reads the other page's value as a transition.
-  A `pointerdown`/`keydown` inside the properties table ends that window
-  early with a fresh baseline, so the user's own quick changes still count.
+  the timer.
+- **A page switch must never look like a Status/Done change.** Swapping
+  pages inside one side peek shows the new page's values ~80 ms after the
+  click, well before the 500 ms URL poll notices. Three guards in
+  `content.js` cover that:
+  - the baseline reset happens in the same synchronous step as the
+    `currentPageId` change in `activatePage` (no `await` between them);
+  - `checkStatusTransitions` does nothing while the URL's page id differs
+    from `currentPageId`;
+  - for `SETTLE_MS` (1.5 s) after activation, readings only re-baseline.
+    A `pointerdown`/`keydown` inside the properties table
+    (`onPropertiesInteraction`) ends that window early with a fresh
+    baseline, so the user's own quick changes still count; only changes
+    from automations/other tabs in that window are ignored.
 - **Status/Done detection is DOM-based**, reusing the same anchor-finding
   code that places the inline widget, rather than a second Notion API read
   path — keeps the API surface (and the token's usage) limited to writes.
@@ -95,6 +122,11 @@ suite in this repo.
   the search falls through to the entire document — colliding with other
   same-named properties on screen, e.g. a database view's own checkbox
   column sitting behind an open peek.
+- **Don't re-read `currentPageId` after an `await`.** The user can switch
+  pages during any storage or API call. Capture the id at the top of the
+  function and use that copy for `loadState`/`saveState`/pushes (as
+  `startTimer`, `pauseTimer` and the main tick do), or one page's state or
+  minutes gets written to another.
 - **When a DOM heuristic misbehaves on the live Notion page in a way that
   can't be diagnosed by reading the code, ask for real DevTools markup**
   (or add temporary `console.debug` logging and have the user reproduce
@@ -103,6 +135,14 @@ suite in this repo.
 - For fragility details on any specific heuristic (URL parsing, bare
   database view detection, inline anchoring), see `SETUP.md`'s "Notes &
   limitations" section rather than duplicating it here.
+
+## Testing
+
+No automated tests. To verify a change in live Notion with the browser
+tools, read `docs/testing.md` first — it covers the prerequisites (the
+user has to reload the extension; which browser), how to observe and
+drive the widget from script, tool limits, and the regression procedures
+used so far. Not needed for code-only work.
 
 ## Code style
 
