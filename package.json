@@ -1,0 +1,12 @@
+{
+  "name": "notion-task-stopwatch-dev",
+  "private": true,
+  "description": "Dev tooling only: live-Notion tests for the extension in notion-task-stopwatch/. The extension itself has no build step or dependencies.",
+  "scripts": {
+    "test": "playwright test -c tests",
+    "test:setup": "node tests/setup.js"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0"
+  }
+}

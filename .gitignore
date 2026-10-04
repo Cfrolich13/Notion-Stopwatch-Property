@@ -1,0 +1,8 @@
+.DS_Store
+node_modules/
+
+# Playwright test profile (holds a Notion session and the integration
+# token), local sandbox settings, and run output.
+tests/.profile/
+tests/.local.json
+tests/.results/

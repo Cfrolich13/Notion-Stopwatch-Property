@@ -1,11 +1,72 @@
 # Testing in live Notion
 
-There is no automated test suite. Behavior is verified by driving the real
-extension on a real Notion page through the Claude in Chrome browser
-tools. These notes record what worked, so a new session doesn't have to
-rediscover it.
+All testing happens against the real extension on a real Notion page;
+nothing is mocked. There are two ways to do it:
 
-## Before starting
+1. **The Playwright suite in `tests/`** — the default. Run it after any
+   change to `content.js` or `background.js`.
+2. **Agent-driven browser control** (Claude in Chrome) — for investigating
+   something the suite doesn't cover, or in the user's own browser.
+   Covered from "Ad-hoc testing with browser tools" onward.
+
+## Playwright suite
+
+```
+npm install             # once
+npm run test:setup      # once, and again if the Notion session expires
+npm test                # the whole suite, about 8 minutes
+npx playwright test -c tests 02-settle-window   # one file
+NTS_TRIPS=60 npm test   # more page-switch round trips (default 30)
+```
+
+- **How it runs**: Playwright launches its own Chromium with a dedicated
+  profile (`tests/.profile/`, git-ignored) and loads the extension fresh
+  from `notion-task-stopwatch/` on every run, so there is no manual
+  reload step. A browser window opens; it can sit behind other windows
+  while the user works elsewhere (Playwright launches Chromium with
+  background throttling switched off). Don't minimize it or click around
+  inside it during a run.
+- **One-time setup is manual by design**: `npm run test:setup` opens that
+  browser so the user can log in to Notion, enter the token and property
+  names in the extension settings tab, and visit the sandbox calendar
+  view. The view's URL is saved to `tests/.local.json`. An agent must not
+  type the login or the token; ask the user to run setup.
+- **Sandbox requirements**: a calendar view showing at least two task
+  cards, a Status property with "Not started" / "In progress" / "Done",
+  a Done checkbox, a Number property for the time, and **no Notion
+  automation linking Status and Done** (it makes triggers ambiguous).
+  The suite uses the first two cards as page A and page B and sets their
+  Status itself.
+- **What it leaves behind**: both timers paused. Page A's timer is reset
+  to zero by the Reset test and then accumulates a couple of minutes;
+  the time property in Notion is overwritten accordingly.
+
+| File | Covers |
+|---|---|
+| `01-page-switch.spec.js` | Switching pages in one side peek never starts or resumes a timer |
+| `02-settle-window.spec.js` | A Done tick or Status change made within ~1 s of opening a page still counts |
+| `03-transitions.spec.js` | Manual start writes Status; Status/Done changes start and pause; save indicator; Reset; bare calendar view |
+| `04-isolation.spec.js` | A running timer and its auto-save stay on their own page while switching for 80 s |
+
+Support code: `tests/support/sandbox.js` (drive Notion, read the
+extension's stored state through its popup page), `fixtures.js` (browser
+and sandbox shared by the whole run), `paths.js` (profile, launch flags).
+
+- **Reading failures**: assertions on `timerState(...)` read
+  `chrome.storage.local` directly, so a failure there is the extension's
+  real state, not a rendering glitch. A timeout while opening a page or
+  picking a Status option usually means Notion's markup changed — fix the
+  selectors in `sandbox.js`. A setup error ("not logged in" / "settings
+  incomplete") means the profile needs `npm run test:setup` again.
+- **Timing noise**: it is still live Notion. If a timing test fails once,
+  rerun that file before concluding there is a bug.
+
+## Ad-hoc testing with browser tools
+
+These notes record what worked when driving the user's own browser by
+hand, so a new session doesn't have to rediscover it.
+
+### Before starting
 
 - **The user must reload the extension** at `chrome://extensions` after
   any code change, then the Notion tab must be loaded fresh. An agent
@@ -27,7 +88,7 @@ rediscover it.
   calendar, which is all the page-switch tests need. Token and property
   names are already configured in the extension popup.
 
-## Observing state
+### Observing state
 
 Page scripts (the `javascript_tool`) run in the page's main world, so they
 can't read `chrome.storage` or the content script's variables. Read the
@@ -57,7 +118,7 @@ const snap = () => {
   second after a page switch (Notion re-renders, the next tick re-anchors
   it). A `null` widget in a sample taken right after a switch is normal.
 
-## Driving the page from script
+### Driving the page from script
 
 Scripted actions give controlled timing, which real tool clicks can't
 (each tool call takes an unpredictable second or more).
@@ -79,9 +140,15 @@ Scripted actions give controlled timing, which real tool clicks can't
   Real mouse clicks via the `computer` tool also work when timing doesn't
   matter (take a screenshot for coordinates; they depend on window size).
 - **Never click the Reset button (↺)**: it opens a `confirm()` dialog,
-  which blocks the browser tools until the user dismisses it.
+  which blocks the browser tools until the user dismisses it. (The
+  Playwright suite does test Reset; it can answer the dialog.)
 
-## Tool limits worth knowing
+### Tool limits worth knowing
+
+- **The user's own browser does throttle hidden tabs.** If the test tab is
+  minimized, fully covered by another window, or not the active tab, its
+  timers slow to about one tick per second, which distorts timing tests.
+  Ask the user to keep that window at least partly visible.
 
 - A `browser_batch` whose waits add up to much more than ~50 s times out.
   For long runs, start a detached async loop that writes results to a
@@ -94,7 +161,7 @@ Scripted actions give controlled timing, which real tool clicks can't
   in a joined sample line means the widget was absent, not that its text
   was empty.
 
-## Procedures
+### Procedures
 
 Record the starting widget time and time-property value of both pages
 first; the checks compare against them.
@@ -122,7 +189,7 @@ first; the checks compare against them.
 5. **Bare view.** Close the peek → widget not visible; reopen A → same
    state as before.
 
-## Afterwards
+### Afterwards
 
 Put the sandbox back the way it was found (Status, Done checkbox, timer
 paused), remove any helper object from `window`, close the test tab, and

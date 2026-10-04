@@ -10,8 +10,9 @@ settings let a Status property and/or a Done checkbox drive the stopwatch
 automatically. There's no build step — the extension is loaded unpacked
 directly into Chrome (see `README.md` for install steps,
 `notion-task-stopwatch/SETUP.md` for the Notion-side integration setup).
-No package manager, linter, or automated test suite in this repo; changes
-are verified by hand in live Notion (see "Testing" below).
+The extension itself has no dependencies or linter; the root
+`package.json` exists only for the Playwright test suite, which runs
+against live Notion (see "Testing" below).
 
 ## Features
 
@@ -42,8 +43,14 @@ The extension's source is **not** at the repo root — it lives in
 ```
 CLAUDE.md                 this file
 README.md                 install-as-unpacked-extension instructions
+package.json              dev tooling only (Playwright); not part of the extension
 docs/                     agent-facing notes, read on demand
-  testing.md              how to test in live Notion via browser tools
+  testing.md              how to run and extend the tests in live Notion
+tests/                    Playwright suite (live Notion, real extension)
+  *.spec.js               the tests, numbered in run order
+  support/                sandbox driver, fixtures, paths
+  setup.js                one-time login/settings for the test profile
+  playwright.config.js
 notion-task-stopwatch/    the extension (everything below is in here)
   manifest.json
   content.js
@@ -138,11 +145,18 @@ Inside `notion-task-stopwatch/`:
 
 ## Testing
 
-No automated tests. To verify a change in live Notion with the browser
-tools, read `docs/testing.md` first — it covers the prerequisites (the
-user has to reload the extension; which browser), how to observe and
-drive the widget from script, tool limits, and the regression procedures
-used so far. Not needed for code-only work.
+`npm test` runs the Playwright suite in `tests/` against live Notion with
+the extension loaded fresh from `notion-task-stopwatch/` (about 8
+minutes; a browser window opens but can sit in the background). Run it after
+changing `content.js` or `background.js`, and add a test there when
+fixing a behavior bug. It needs a one-time `npm run test:setup`, which
+only the user can do (it involves logging in to Notion and entering the
+token).
+
+Read `docs/testing.md` before running, debugging or extending the suite,
+or when testing by hand through the browser tools instead — it covers
+setup, sandbox requirements, how to read failures, and the tool limits
+hit so far. Not needed for code-only work.
 
 ## Code style
 
