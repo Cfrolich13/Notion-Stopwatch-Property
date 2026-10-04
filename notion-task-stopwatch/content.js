@@ -224,8 +224,7 @@
 
     // Manual start on a "Not started" task moves it to "In progress".
     if (statusPropertyName) {
-      const cell = findPropertyValueCell(statusPropertyName);
-      const text = cell ? cell.textContent.trim().toLowerCase() : null;
+      const text = readStatusText();
       if (text === "not started") {
         // Pre-set the baseline so our own write isn't seen as a transition.
         lastObservedStatus = "in progress";
@@ -317,6 +316,37 @@
     return el.getAttribute("aria-checked") === "true";
   }
 
+  // Both return null when the property isn't configured or not on screen.
+  function readStatusText() {
+    if (!statusPropertyName) return null;
+    const cell = findPropertyValueCell(statusPropertyName);
+    return cell ? cell.textContent.trim().toLowerCase() : null;
+  }
+
+  function readDoneChecked() {
+    if (!doneCheckboxPropertyName) return null;
+    const cell = findPropertyValueCell(doneCheckboxPropertyName);
+    return cell ? readCheckboxState(cell) : null;
+  }
+
+  // A press or keystroke inside the properties table proves the new page
+  // is rendered and the user is acting on it, so end the settle window
+  // early. Runs in the capture phase, before Notion applies the change,
+  // so the values read here are the true "before" baseline.
+  function onPropertiesInteraction(e) {
+    if (!currentPageId || Date.now() >= baselineSettleUntil) return;
+    if (extractPageId(location.href) !== currentPageId) return;
+    const scope = getPropertiesScope();
+    if (!scope || !scope.contains(e.target)) return;
+    if (widgetRoot && widgetRoot.contains(e.target)) return; // inline widget sits in the table
+    lastObservedStatus = readStatusText();
+    lastObservedDoneChecked = readDoneChecked();
+    baselineSettleUntil = 0;
+  }
+
+  document.addEventListener("pointerdown", onPropertiesInteraction, true);
+  document.addEventListener("keydown", onPropertiesInteraction, true);
+
   // Edge-triggered: acts only when a value *changes* from a known previous
   // reading (prev !== null), so opening an already-"In progress" task
   // doesn't force-start the timer.
@@ -328,8 +358,7 @@
     const settling = Date.now() < baselineSettleUntil;
 
     if (statusPropertyName) {
-      const cell = findPropertyValueCell(statusPropertyName);
-      const text = cell ? cell.textContent.trim().toLowerCase() : null;
+      const text = readStatusText();
       if (text !== null && text !== lastObservedStatus) {
         const prev = lastObservedStatus;
         lastObservedStatus = text;
@@ -341,8 +370,7 @@
     }
 
     if (doneCheckboxPropertyName) {
-      const cell = findPropertyValueCell(doneCheckboxPropertyName);
-      const checked = cell ? readCheckboxState(cell) : null;
+      const checked = readDoneChecked();
       if (checked !== null && checked !== lastObservedDoneChecked) {
         const prev = lastObservedDoneChecked;
         lastObservedDoneChecked = checked;

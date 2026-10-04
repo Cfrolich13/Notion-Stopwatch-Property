@@ -114,9 +114,11 @@ that behavior.
   `.checked` property of Notion's underlying `<input type="checkbox">`,
   and only searches within the currently open page's own property panel —
   works on both full pages and side peeks.
-- Status and Done-checkbox changes made within about 1.5 seconds of
-  opening a page are ignored, so that switching between pages isn't
-  mistaken for a change. Start or pause manually if you're that quick.
+- For about 1.5 seconds after a page opens, Status and Done-checkbox
+  changes that you didn't make yourself in that tab (an automation,
+  another tab, the API) are ignored, so that switching between pages
+  isn't mistaken for a change. Changes you click or type in the page's
+  own properties are picked up right away.
 - Status/Select value matching is case-insensitive but exact otherwise —
   it expects the literal words "Not started", "In progress", and "Done"
   (Notion's default Status template). A relabeled Status property with

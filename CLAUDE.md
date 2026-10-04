@@ -71,6 +71,8 @@ suite in this repo.
   `currentPageId` change (no `await` between them), and for `SETTLE_MS`
   after activation readings only re-baseline — otherwise switching between
   two pages in one side peek reads the other page's value as a transition.
+  A `pointerdown`/`keydown` inside the properties table ends that window
+  early with a fresh baseline, so the user's own quick changes still count.
 - **Status/Done detection is DOM-based**, reusing the same anchor-finding
   code that places the inline widget, rather than a second Notion API read
   path — keeps the API surface (and the token's usage) limited to writes.
