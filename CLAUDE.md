@@ -67,7 +67,10 @@ suite in this repo.
   reading is reset to "unknown" on page activation and on a settings
   change, so the first read after either is a baseline, not a transition —
   otherwise opening a task that's already "In progress" would force-start
-  the timer.
+  the timer. The reset happens in the same synchronous step as the
+  `currentPageId` change (no `await` between them), and for `SETTLE_MS`
+  after activation readings only re-baseline — otherwise switching between
+  two pages in one side peek reads the other page's value as a transition.
 - **Status/Done detection is DOM-based**, reusing the same anchor-finding
   code that places the inline widget, rather than a second Notion API read
   path — keeps the API surface (and the token's usage) limited to writes.

@@ -17,8 +17,12 @@
   // either isn't mistaken for a live transition.
   let lastObservedStatus = null;
   let lastObservedDoneChecked = null;
+  // Until this time, readings only re-baseline: right after a page switch
+  // the DOM may still show the previous page's properties.
+  let baselineSettleUntil = 0;
 
   const AUTO_SAVE_MS = 60 * 1000;
+  const SETTLE_MS = 1500; // > one main tick, so a fresh read lands inside it
 
   // ---------- id / state helpers ----------
 
@@ -205,14 +209,18 @@
     }
   }
 
+  // startTimer/pauseTimer pin the page id up front: currentPageId can
+  // change during an await, and state must not land on the new page.
   async function startTimer() {
-    const state = await loadState(currentPageId);
+    const pageId = currentPageId;
+    const state = await loadState(pageId);
     if (state.running) return;
     state.running = true;
     state.lastStartTs = Date.now();
     if (!state.lastAutoSaveAt) state.lastAutoSaveAt = Date.now(); // first auto-save 60s from now
-    await saveState(currentPageId, state);
+    await saveState(pageId, state);
     await render();
+    if (pageId !== currentPageId) return; // switched away; DOM is another page's
 
     // Manual start on a "Not started" task moves it to "In progress".
     if (statusPropertyName) {
@@ -221,20 +229,21 @@
       if (text === "not started") {
         // Pre-set the baseline so our own write isn't seen as a transition.
         lastObservedStatus = "in progress";
-        pushStatusInProgress();
+        pushStatusInProgress(pageId);
       }
     }
   }
 
   async function pauseTimer() {
-    const state = await loadState(currentPageId);
+    const pageId = currentPageId;
+    const state = await loadState(pageId);
     if (!state.running) return;
     state.elapsedMs += Date.now() - state.lastStartTs;
     state.running = false;
     state.lastStartTs = null;
-    await saveState(currentPageId, state);
+    await saveState(pageId, state);
     await render();
-    await pushToNotion(state.elapsedMs); // every pause saves
+    await pushToNotion(pageId, state.elapsedMs); // every pause saves
   }
 
   async function onReset() {
@@ -258,13 +267,13 @@
   }
 
   // Sends the running total (not a delta) — background overwrites the property.
-  async function pushToNotion(elapsedMs) {
+  async function pushToNotion(pageId, elapsedMs) {
     const minutes = Math.round((elapsedMs / 60000) * 100) / 100;
     setDot("saving", "Saving…");
     try {
       const response = await chrome.runtime.sendMessage({
         type: "NTS_SAVE_TIME",
-        pageId: currentPageId,
+        pageId,
         minutes,
       });
       if (response && response.error) {
@@ -277,11 +286,11 @@
     }
   }
 
-  async function pushStatusInProgress() {
+  async function pushStatusInProgress(pageId) {
     try {
       const response = await chrome.runtime.sendMessage({
         type: "NTS_SET_STATUS_IN_PROGRESS",
-        pageId: currentPageId,
+        pageId,
         statusPropertyName,
       });
       if (response && response.error) {
@@ -313,6 +322,10 @@
   // doesn't force-start the timer.
   async function checkStatusTransitions() {
     if (!currentPageId) return;
+    // Notion has navigated but the URL poll hasn't caught up: the DOM may
+    // already be another page's, so don't compare it to this baseline.
+    if (extractPageId(location.href) !== currentPageId) return;
+    const settling = Date.now() < baselineSettleUntil;
 
     if (statusPropertyName) {
       const cell = findPropertyValueCell(statusPropertyName);
@@ -320,7 +333,7 @@
       if (text !== null && text !== lastObservedStatus) {
         const prev = lastObservedStatus;
         lastObservedStatus = text;
-        if (prev !== null) {
+        if (prev !== null && !settling) {
           if (text === "in progress") await startTimer();
           else if (text === "done") await pauseTimer();
         }
@@ -333,7 +346,7 @@
       if (checked !== null && checked !== lastObservedDoneChecked) {
         const prev = lastObservedDoneChecked;
         lastObservedDoneChecked = checked;
-        if (prev !== null && checked === true) await pauseTimer();
+        if (prev !== null && !settling && checked === true) await pauseTimer();
       }
     }
   }
@@ -453,11 +466,14 @@
 
   async function activatePage(pageId) {
     currentPageId = pageId;
-    await refreshPropertyName();
-    await refreshStatusSettings();
     // New page: first Status/Done read is a baseline, not a transition.
+    // Must reset before any await, or a tick in between compares the new
+    // page against the old page's baseline.
     lastObservedStatus = null;
     lastObservedDoneChecked = null;
+    baselineSettleUntil = Date.now() + SETTLE_MS;
+    await refreshPropertyName();
+    await refreshStatusSettings();
     if (!widgetRoot) widgetRoot = buildWidget();
     widgetRoot.style.display = "";
     await render();
@@ -516,14 +532,16 @@
       clearInterval(mainTickId);
       return;
     }
-    if (!currentPageId) return;
-    const state = await loadState(currentPageId);
+    const pageId = currentPageId;
+    if (!pageId) return;
+    const state = await loadState(pageId);
+    if (pageId !== currentPageId) return; // page switched mid-await; state is stale
     if (state.running) {
       els.time.textContent = formatDuration(currentElapsedMs(state));
       if (Date.now() - (state.lastAutoSaveAt || 0) >= AUTO_SAVE_MS) {
         state.lastAutoSaveAt = Date.now();
-        await saveState(currentPageId, state);
-        await pushToNotion(currentElapsedMs(state));
+        await saveState(pageId, state);
+        await pushToNotion(pageId, currentElapsedMs(state));
       }
     }
     placeWidget();
