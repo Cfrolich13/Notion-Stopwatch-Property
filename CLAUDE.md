@@ -146,10 +146,12 @@ Inside `notion-task-stopwatch/`:
 ## Testing
 
 `npm test` runs the Playwright suite in `tests/` against live Notion with
-the extension loaded fresh from `notion-task-stopwatch/` (about 8
+the extension loaded fresh from `notion-task-stopwatch/` (about 5
 minutes; a browser window opens but can sit in the background). Run it after
 changing `content.js` or `background.js`, and add a test there when
-fixing a behavior bug. It needs a one-time `npm run test:setup`, which
+fixing a behavior bug. `NTS_EXTENSION_REF=<commit> npm test` runs the
+current tests against an older version of the extension without a
+checkout. Results are saved under `tests/.runs/`. It needs a one-time `npm run test:setup`, which
 only the user can do (it involves logging in to Notion and entering the
 token).
 

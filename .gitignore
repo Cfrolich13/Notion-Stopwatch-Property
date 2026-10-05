@@ -6,3 +6,5 @@ node_modules/
 tests/.profile/
 tests/.local.json
 tests/.results/
+tests/.ext/
+tests/.runs/

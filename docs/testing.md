@@ -14,9 +14,10 @@ nothing is mocked. There are two ways to do it:
 ```
 npm install             # once
 npm run test:setup      # once, and again if the Notion session expires
-npm test                # the whole suite, about 8 minutes
+npm test                # the whole suite, about 5 minutes
 npx playwright test -c tests 02-settle-window   # one file
 NTS_TRIPS=60 npm test   # more page-switch round trips (default 30)
+NTS_EXTENSION_REF=3f4cc3e npm test   # current tests, extension as of that commit
 ```
 
 - **How it runs**: Playwright launches its own Chromium with a dedicated
@@ -26,6 +27,23 @@ NTS_TRIPS=60 npm test   # more page-switch round trips (default 30)
   while the user works elsewhere (Playwright launches Chromium with
   background throttling switched off). Don't minimize it or click around
   inside it during a run.
+- **Results are saved** to `tests/.runs/<date>_<time>_<version>.txt`
+  (git-ignored, one file per run, never overwritten): the extension
+  version tested, each test's outcome and duration, and failure messages.
+  The terminal shows the same thing live.
+- **Testing an older commit**: don't check it out — the tests would
+  change or vanish with it. Set `NTS_EXTENSION_REF` to any commit, tag or
+  branch instead. The run unpacks `notion-task-stopwatch/` from that
+  commit into `tests/.ext/` and loads that copy; the working tree and the
+  tests stay as they are. Details that matter:
+  - without the variable, the working tree is tested, uncommitted changes
+    included;
+  - the staged copy has a different extension id, so its own storage: the
+    run copies the settings over from the working-tree copy first (an
+    extra browser launch), and its timer state is separate;
+  - tests for behavior the old commit didn't have yet are expected to
+    fail there. Useful for confirming a test catches a past bug, or for
+    finding which commit broke something (`git bisect` by hand).
 - **One-time setup is manual by design**: `npm run test:setup` opens that
   browser so the user can log in to Notion, enter the token and property
   names in the extension settings tab, and visit the sandbox calendar
@@ -50,7 +68,9 @@ NTS_TRIPS=60 npm test   # more page-switch round trips (default 30)
 
 Support code: `tests/support/sandbox.js` (drive Notion, read the
 extension's stored state through its popup page), `fixtures.js` (browser
-and sandbox shared by the whole run), `paths.js` (profile, launch flags).
+and sandbox shared by the whole run), `paths.js` (profile, launch flags),
+`target.js` (which extension version is loaded), `file-reporter.js`
+(the saved results).
 
 - **Reading failures**: assertions on `timerState(...)` read
   `chrome.storage.local` directly, so a failure there is the extension's
@@ -58,6 +78,12 @@ and sandbox shared by the whole run), `paths.js` (profile, launch flags).
   picking a Status option usually means Notion's markup changed — fix the
   selectors in `sandbox.js`. A setup error ("not logged in" / "settings
   incomplete") means the profile needs `npm run test:setup` again.
+- **Check that a new test can fail.** A live test that passes first time
+  proves little. For a past bug, run the test against the pre-fix commit
+  with `NTS_EXTENSION_REF`; otherwise temporarily break the behavior it
+  guards, confirm the test goes red, then restore the file. Done for
+  `01` (pre-fix code fails on the first round trip) and `02` (fails with
+  the `onPropertiesInteraction` listeners removed).
 - **Timing noise**: it is still live Notion. If a timing test fails once,
   rerun that file before concluding there is a bug.
 

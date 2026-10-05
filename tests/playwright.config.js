@@ -10,5 +10,5 @@ module.exports = defineConfig({
   retries: 0,
   timeout: 3 * 60 * 1000,
   expect: { timeout: 10 * 1000 },
-  reporter: [["list"]],
+  reporter: [["list"], ["./support/file-reporter.js"]],
 });
