@@ -45,3 +45,36 @@ test("a running timer keeps to its own page while switching", async ({ sandbox }
   expect((await sandbox.readProps()).time).toBe(bBefore.time);
   expect(await sandbox.timerState(b)).toEqual(bBefore.state);
 });
+
+// Same guarantee, made deterministic: with timer-state reads held back
+// 3 s, the switch to B always lands while an auto-save that loaded A's
+// state is still waiting, so that save must still go to A.
+test("an auto-save in flight during a switch stays on its page", async ({ sandbox }) => {
+  const { a, b } = sandbox;
+  await sandbox.prepare({ a: "In progress", b: "Done" });
+  const bBefore = await sandbox.timerState(b);
+
+  await sandbox.openPage(a);
+  await sandbox.toggle();
+  await sandbox.expectRunning(a, true, "manual start");
+  const started = await sandbox.timerState(a);
+
+  await sandbox.setStorageDelay(3000);
+  try {
+    await sandbox.patchState(a, { lastAutoSaveAt: 0 }); // due on the next tick
+    await sandbox.wait(1100); // > one tick, so a tick has loaded A since the patch
+    await sandbox.clickCard(b); // URL poll sees B well before that load returns
+    await sandbox.wait(4500);
+  } finally {
+    await sandbox.setStorageDelay(0);
+  }
+
+  expect(await sandbox.timerState(b), "page B's state changed").toEqual(bBefore);
+  const stateA = await sandbox.timerState(a);
+  expect(stateA.running, "page A stopped").toBe(true);
+  expect(stateA.lastStartTs, "page A restarted").toBe(started.lastStartTs);
+
+  await sandbox.openPage(a);
+  await sandbox.toggle();
+  await sandbox.expectRunning(a, false, "manual pause");
+});

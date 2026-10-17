@@ -1,12 +1,13 @@
 // Which version of the extension a run tests. By default the working
 // tree; with NTS_EXTENSION_REF=<commit> the extension folder as it was at
-// that commit, unpacked to a staging folder so the checkout (and the
-// tests themselves) stay as they are.
+// that commit. Either way it's copied to a staging folder, so the checkout
+// (and the tests themselves) stay as they are and the test-only
+// slow-storage shim can be added.
 
 const fs = require("fs");
 const path = require("path");
 const { execFileSync, execSync } = require("child_process");
-const { STAGE_DIR } = require("./paths");
+const { STAGE_DIR, EXTENSION_DIR } = require("./paths");
 
 const REPO = path.resolve(__dirname, "../..");
 const FOLDER = "notion-task-stopwatch";
@@ -32,19 +33,30 @@ function resolveTarget() {
   return { sha, slug: sha, label: `commit ${sha} "${git("log", "-1", "--format=%s", sha)}"` };
 }
 
+// sha null stages the working tree, uncommitted changes included.
 function stageExtension(sha) {
   fs.rmSync(STAGE_DIR, { recursive: true, force: true });
-  fs.mkdirSync(STAGE_DIR, { recursive: true });
-  try {
-    execSync(`git archive ${sha} ${FOLDER} | tar -x -C "${STAGE_DIR}" --strip-components=1`, {
-      cwd: REPO,
-      stdio: "pipe",
-      shell: "/bin/bash",
-    });
-  } catch (_) {}
-  if (!fs.existsSync(path.join(STAGE_DIR, "manifest.json"))) {
+  if (sha) {
+    fs.mkdirSync(STAGE_DIR, { recursive: true });
+    try {
+      execSync(`git archive ${sha} ${FOLDER} | tar -x -C "${STAGE_DIR}" --strip-components=1`, {
+        cwd: REPO,
+        stdio: "pipe",
+        shell: "/bin/bash",
+      });
+    } catch (_) {}
+  } else {
+    fs.cpSync(EXTENSION_DIR, STAGE_DIR, { recursive: true });
+  }
+  const manifestPath = path.join(STAGE_DIR, "manifest.json");
+  if (!fs.existsSync(manifestPath)) {
     throw new Error(`Commit ${sha} has no ${FOLDER}/manifest.json to test.`);
   }
+
+  fs.copyFileSync(path.join(__dirname, "slow-storage.js"), path.join(STAGE_DIR, "slow-storage.js"));
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+  manifest.content_scripts[0].js.unshift("slow-storage.js");
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
   return STAGE_DIR;
 }
 

@@ -21,9 +21,12 @@ NTS_EXTENSION_REF=3f4cc3e npm test   # current tests, extension as of that commi
 ```
 
 - **How it runs**: Playwright launches its own Chromium with a dedicated
-  profile (`tests/.profile/`, git-ignored) and loads the extension fresh
-  from `notion-task-stopwatch/` on every run, so there is no manual
-  reload step. A browser window opens; it can sit behind other windows
+  profile (`tests/.profile/`, git-ignored) and loads a fresh copy of the
+  extension on every run, so there is no manual reload step. The copy is
+  staged in `tests/.ext/` with one test-only content script added before
+  `content.js`: `tests/support/slow-storage.js`, which can hold back
+  timer-state reads so a test can land a page switch mid-`await`. It's
+  off unless a test calls `sandbox.setStorageDelay(ms)`. A browser window opens; it can sit behind other windows
   while the user works elsewhere (Playwright launches Chromium with
   background throttling switched off). Don't minimize it or click around
   inside it during a run.
@@ -33,14 +36,15 @@ NTS_EXTENSION_REF=3f4cc3e npm test   # current tests, extension as of that commi
   The terminal shows the same thing live.
 - **Testing an older commit**: don't check it out — the tests would
   change or vanish with it. Set `NTS_EXTENSION_REF` to any commit, tag or
-  branch instead. The run unpacks `notion-task-stopwatch/` from that
-  commit into `tests/.ext/` and loads that copy; the working tree and the
-  tests stay as they are. Details that matter:
-  - without the variable, the working tree is tested, uncommitted changes
+  branch instead. The run stages `notion-task-stopwatch/` from that
+  commit instead of the working tree; the checkout and the tests stay as
+  they are. Details that matter:
+  - without the variable, the working tree is staged, uncommitted changes
     included;
-  - the staged copy has a different extension id, so its own storage: the
-    run copies the settings over from the working-tree copy first (an
-    extra browser launch), and its timer state is separate;
+  - the staged copy has a different extension id from the one setup
+    installed, so its own storage: every run copies the settings over
+    from the setup copy first (an extra browser launch), and its timer
+    state is separate;
   - tests for behavior the old commit didn't have yet are expected to
     fail there. Useful for confirming a test catches a past bug, or for
     finding which commit broke something (`git bisect` by hand).
@@ -64,13 +68,13 @@ NTS_EXTENSION_REF=3f4cc3e npm test   # current tests, extension as of that commi
 | `01-page-switch.spec.js` | Switching pages in one side peek never starts or resumes a timer |
 | `02-settle-window.spec.js` | A Done tick or Status change made within ~1 s of opening a page still counts |
 | `03-transitions.spec.js` | Manual start writes Status; Status/Done changes start and pause; save indicator; Reset; bare calendar view |
-| `04-isolation.spec.js` | A running timer and its auto-save stay on their own page while switching for 80 s |
+| `04-isolation.spec.js` | A running timer and its auto-save stay on their own page while switching for 80 s; an auto-save still in flight when the page switches lands on its own page |
 
 Support code: `tests/support/sandbox.js` (drive Notion, read the
 extension's stored state through its popup page), `fixtures.js` (browser
 and sandbox shared by the whole run), `paths.js` (profile, launch flags),
-`target.js` (which extension version is loaded), `file-reporter.js`
-(the saved results).
+`target.js` (which extension version is staged), `slow-storage.js`
+(the delay shim), `file-reporter.js` (the saved results).
 
 - **Reading failures**: assertions on `timerState(...)` read
   `chrome.storage.local` directly, so a failure there is the extension's
@@ -81,9 +85,16 @@ and sandbox shared by the whole run), `paths.js` (profile, launch flags),
 - **Check that a new test can fail.** A live test that passes first time
   proves little. For a past bug, run the test against the pre-fix commit
   with `NTS_EXTENSION_REF`; otherwise temporarily break the behavior it
-  guards, confirm the test goes red, then restore the file. Done for
-  `01` (pre-fix code fails on the first round trip) and `02` (fails with
-  the `onPropertiesInteraction` listeners removed).
+  guards, confirm the test goes red, then restore the file. Confirmed so
+  far (pre-fix commit → failing test):
+  - `3f4cc3e` → `01` fails on the first round trip;
+  - `d545c77` → both `02` tests fail;
+  - `da9ab94`, `6ac1d35`, `dc27914` → `03` "ticking Done pauses" fails
+    (`.checked`, row/cell lookup and properties-table scoping fixes).
+  - `3f4cc3e` → `04` "an auto-save in flight…" fails (page B gets page
+    A's state). The 80 s `04` test passes there: the race needs a switch
+    inside a few-ms storage `await`, which its 2–4 s switches almost
+    never hit. Races like that need `setStorageDelay` to test reliably.
 - **Timing noise**: it is still live Notion. If a timing test fails once,
   rerun that file before concluding there is a bug.
 

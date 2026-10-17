@@ -32,13 +32,6 @@ const test = base.extend({
     async ({}, use) => {
       const target = resolveTarget();
       console.log(`Extension under test: ${target.label}`);
-      if (!target.sha) {
-        const context = await chromium.launchPersistentContext(PROFILE_DIR, launchOptions());
-        await use(context);
-        await context.close();
-        return;
-      }
-
       // An unpacked extension's id, and so its storage, depends on its
       // folder. The staged copy starts with no settings; carry them over
       // from the working-tree copy the profile was set up with.

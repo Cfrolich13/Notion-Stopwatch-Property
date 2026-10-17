@@ -68,6 +68,7 @@ class Sandbox {
     }, CARD);
 
     const sandbox = new Sandbox(page, extPage, settings, cards);
+    await sandbox.setStorageDelay(0); // in case an earlier run was cut short
     await sandbox.closePeek();
     return sandbox;
   }
@@ -85,6 +86,21 @@ class Sandbox {
       key
     );
     return state || { elapsedMs: 0, running: false, lastStartTs: null, lastAutoSaveAt: null };
+  }
+
+  async patchState(pageId, fields) {
+    await this.extPage.evaluate(
+      async ({ k, fields }) => {
+        const { [k]: state } = await chrome.storage.local.get(k);
+        await chrome.storage.local.set({ [k]: { ...state, ...fields } });
+      },
+      { k: `nts_state_${pageId}`, fields }
+    );
+  }
+
+  // Holds back content.js's timer-state reads (support/slow-storage.js).
+  async setStorageDelay(ms) {
+    await this.extPage.evaluate((ms) => chrome.storage.local.set({ nts_test_storage_delay_ms: ms }), ms);
   }
 
   async expectRunning(pageId, running, message, timeout = 5000) {
