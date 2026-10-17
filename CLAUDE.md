@@ -131,9 +131,12 @@ Inside `notion-task-stopwatch/`:
   column sitting behind an open peek.
 - **Don't re-read `currentPageId` after an `await`.** The user can switch
   pages during any storage or API call. Capture the id at the top of the
-  function and use that copy for `loadState`/`saveState`/pushes (as
-  `startTimer`, `pauseTimer` and the main tick do), or one page's state or
-  minutes gets written to another.
+  entry point — the event handler or tick, not the helper it calls after
+  an `await` — and pass that copy down to `loadState`/`saveState`/pushes
+  (`startTimer(pageId)`/`pauseTimer(pageId)` take it as an argument for
+  this reason), or one page's state or minutes gets written to another.
+  Test races like this with `sandbox.setStorageDelay` (see
+  `docs/testing.md`).
 - **When a DOM heuristic misbehaves on the live Notion page in a way that
   can't be diagnosed by reading the code, ask for real DevTools markup**
   (or add temporary `console.debug` logging and have the user reproduce

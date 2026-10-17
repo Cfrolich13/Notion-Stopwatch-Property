@@ -78,3 +78,27 @@ test("an auto-save in flight during a switch stays on its page", async ({ sandbo
   await sandbox.toggle();
   await sandbox.expectRunning(a, false, "manual pause");
 });
+
+// The pause button reads the page's state before pausing; a switch during
+// that read must not hand the pause to the newly opened page.
+test("a pause clicked just before a switch pauses its own page", async ({ sandbox }) => {
+  const { a, b } = sandbox;
+  await sandbox.prepare({ a: "In progress", b: "Done" });
+  const bBefore = await sandbox.timerState(b);
+
+  await sandbox.openPage(a);
+  await sandbox.toggle();
+  await sandbox.expectRunning(a, true, "manual start");
+
+  await sandbox.setStorageDelay(3000);
+  try {
+    await sandbox.toggle();
+    await sandbox.clickCard(b);
+    await sandbox.wait(7500); // two held-back reads: the toggle's and the pause's
+  } finally {
+    await sandbox.setStorageDelay(0);
+  }
+
+  expect((await sandbox.timerState(a)).running, "page A kept running").toBe(false);
+  expect(await sandbox.timerState(b), "page B's state changed").toEqual(bBefore);
+});

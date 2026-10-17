@@ -201,18 +201,19 @@
       alert("This page needs to be refreshed after an extension update.");
       return;
     }
-    const state = await loadState(currentPageId);
+    const pageId = currentPageId;
+    const state = await loadState(pageId);
     if (state.running) {
-      await pauseTimer();
+      await pauseTimer(pageId);
     } else {
-      await startTimer();
+      await startTimer(pageId);
     }
   }
 
-  // startTimer/pauseTimer pin the page id up front: currentPageId can
-  // change during an await, and state must not land on the new page.
-  async function startTimer() {
-    const pageId = currentPageId;
+  // Callers pass the page id they captured before any await:
+  // currentPageId can change during one, and state must not land on the
+  // new page.
+  async function startTimer(pageId) {
     const state = await loadState(pageId);
     if (state.running) return;
     state.running = true;
@@ -233,8 +234,7 @@
     }
   }
 
-  async function pauseTimer() {
-    const pageId = currentPageId;
+  async function pauseTimer(pageId) {
     const state = await loadState(pageId);
     if (!state.running) return;
     state.elapsedMs += Date.now() - state.lastStartTs;
@@ -351,10 +351,11 @@
   // reading (prev !== null), so opening an already-"In progress" task
   // doesn't force-start the timer.
   async function checkStatusTransitions() {
-    if (!currentPageId) return;
+    const pageId = currentPageId;
+    if (!pageId) return;
     // Notion has navigated but the URL poll hasn't caught up: the DOM may
     // already be another page's, so don't compare it to this baseline.
-    if (extractPageId(location.href) !== currentPageId) return;
+    if (extractPageId(location.href) !== pageId) return;
     const settling = Date.now() < baselineSettleUntil;
 
     if (statusPropertyName) {
@@ -363,18 +364,19 @@
         const prev = lastObservedStatus;
         lastObservedStatus = text;
         if (prev !== null && !settling) {
-          if (text === "in progress") await startTimer();
-          else if (text === "done") await pauseTimer();
+          if (text === "in progress") await startTimer(pageId);
+          else if (text === "done") await pauseTimer(pageId);
         }
       }
     }
+    if (pageId !== currentPageId) return; // switched during the await above
 
     if (doneCheckboxPropertyName) {
       const checked = readDoneChecked();
       if (checked !== null && checked !== lastObservedDoneChecked) {
         const prev = lastObservedDoneChecked;
         lastObservedDoneChecked = checked;
-        if (prev !== null && !settling && checked === true) await pauseTimer();
+        if (prev !== null && !settling && checked === true) await pauseTimer(pageId);
       }
     }
   }

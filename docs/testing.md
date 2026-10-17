@@ -68,7 +68,7 @@ NTS_EXTENSION_REF=3f4cc3e npm test   # current tests, extension as of that commi
 | `01-page-switch.spec.js` | Switching pages in one side peek never starts or resumes a timer |
 | `02-settle-window.spec.js` | A Done tick or Status change made within ~1 s of opening a page still counts |
 | `03-transitions.spec.js` | Manual start writes Status; Status/Done changes start and pause; save indicator; Reset; bare calendar view |
-| `04-isolation.spec.js` | A running timer and its auto-save stay on their own page while switching for 80 s; an auto-save still in flight when the page switches lands on its own page |
+| `04-isolation.spec.js` | A running timer and its auto-save stay on their own page while switching for 80 s; an auto-save still in flight when the page switches lands on its own page; so does a pause clicked just before a switch |
 
 Support code: `tests/support/sandbox.js` (drive Notion, read the
 extension's stored state through its popup page), `fixtures.js` (browser
@@ -95,6 +95,9 @@ and sandbox shared by the whole run), `paths.js` (profile, launch flags),
     A's state). The 80 s `04` test passes there: the race needs a switch
     inside a few-ms storage `await`, which its 2–4 s switches almost
     never hit. Races like that need `setStorageDelay` to test reliably.
+  - `dc4213c` → `04` "a pause clicked just before a switch…" fails
+    (page A kept running: `onToggle` read the page id again after its
+    storage read).
 - **Timing noise**: it is still live Notion. If a timing test fails once,
   rerun that file before concluding there is a bug.
 
