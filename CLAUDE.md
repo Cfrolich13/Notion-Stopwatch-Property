@@ -168,3 +168,13 @@ hit so far. Not needed for code-only work.
 - Comments: concise and skimmable. Explain *why* something is done a
   particular way, not what the code does. Short inline comments are fine
   where they help; avoid long paragraph comments.
+
+## Working conventions
+
+- **Commit directly to `main`.** Only use a separate branch when there's a
+  good reason (e.g. risky or experimental work), and ask before committing
+  in that case.
+- **Spell out full literal paths in `rm` commands** — no shell variables,
+  and keep each `rm` in its own short command so it's easy to check
+  before approving. The same goes for other destructive commands (`mv`
+  over an existing file, `rsync --delete`).
